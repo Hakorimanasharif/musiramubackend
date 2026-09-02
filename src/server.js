@@ -2,6 +2,8 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import morgan from "morgan";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import connectDB from "./config/db.js";
 
 import authRoutes from "./routes/auth.js";
@@ -15,17 +17,9 @@ import emailRoutes from "./routes/email.js";
 dotenv.config();
 const app = express();
 
-// Security: optional helmet/rate-limit (installed)
-let helmet, rateLimit;
-try { helmet = (await import("helmet")).default; } catch {}
-try { rateLimit = (await import("express-rate-limit")).default; } catch {}
-
-if (helmet) app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-if (rateLimit) {
-  app.use(rateLimit({ windowMs: 15*60*1000, max: 300, standardHeaders: true, legacyHeaders: false }));
-  // stricter for public receipt enumeration
-  app.use("/api/loans/receipt", rateLimit({ windowMs: 60*60*1000, max: 100, message: { message: "Too many receipt requests, try later" } }));
-}
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+app.use(rateLimit({ windowMs: 15*60*1000, max: 300, standardHeaders: true, legacyHeaders: false }));
+app.use("/api/loans/receipt", rateLimit({ windowMs: 60*60*1000, max: 100, message: { message: "Too many receipt requests, try later" } }));
 
 const allowedOrigins = [process.env.FRONTEND_URL, "https://musiramuloan.netlify.app"].filter(Boolean);
 app.use(cors({
