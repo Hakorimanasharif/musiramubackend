@@ -27,8 +27,16 @@ if (rateLimit) {
   app.use("/api/loans/receipt", rateLimit({ windowMs: 60*60*1000, max: 100, message: { message: "Too many receipt requests, try later" } }));
 }
 
+const allowedOrigins = [process.env.FRONTEND_URL, "https://musiramuloan.netlify.app"].filter(Boolean);
 app.use(cors({
-  origin: [process.env.FRONTEND_URL, "https://musiramuloan.netlify.app", "http://localhost:5173", "http://localhost:5176", "http://localhost:5177", "http://localhost:5178", "http://localhost:3000"].filter(Boolean),
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (/^http:\/\/localhost:\d+$/.test(origin)) return callback(null, true);
+    if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return callback(null, true);
+    if (/^https:\/\/.*\.netlify\.app$/.test(origin)) return callback(null, true);
+    return callback(null, true);
+  },
   credentials: true,
 }));
 app.use(express.json());
