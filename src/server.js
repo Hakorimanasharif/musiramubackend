@@ -20,7 +20,7 @@ let helmet, rateLimit;
 try { helmet = (await import("helmet")).default; } catch {}
 try { rateLimit = (await import("express-rate-limit")).default; } catch {}
 
-if (helmet) app.use(helmet());
+if (helmet) app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 if (rateLimit) {
   app.use(rateLimit({ windowMs: 15*60*1000, max: 300, standardHeaders: true, legacyHeaders: false }));
   // stricter for public receipt enumeration
