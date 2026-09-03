@@ -42,13 +42,39 @@ if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
 import mongoose from "mongoose";
 import Loan from "./models/Loan.js";
+import { notifyShopOwner } from "./utils/shopNotifier.js";
+import ShopProfile from "./models/ShopProfile.js";
 
 await connectDB();
 
-// background: auto-mark overdue loans every 10 minutes
+// background: auto-mark overdue + auto SMS reminder (respect notifications toggle, 24h throttle)
 setInterval(async () => {
   try {
-    await Loan.updateMany({ dueDate: { $lt: new Date() }, remaining: { $gt: 0 }, status: "Pending" }, { $set: { status: "Overdue" } });
+    const res = await Loan.updateMany({ dueDate: { $lt: new Date() }, remaining: { $gt: 0 }, status: "Pending" }, { $set: { status: "Overdue" } });
+    if (res.modifiedCount) console.log(`⏰ Overdue cron: marked ${res.modifiedCount} loans as Overdue`);
+    // auto reminder: send SMS for Overdue loans not notified in last 24h
+    const cutoff = new Date(Date.now() - 24*60*60*1000);
+    const overdue = await Loan.find({ status: "Overdue", remaining: { $gt: 0 }, $or: [{ lastOverdueNotifiedAt: null }, { lastOverdueNotifiedAt: { $lt: cutoff } }] }).populate("customer").limit(20);
+    for (const loan of overdue) {
+      try {
+        const shop = await ShopProfile.findOne();
+        if (shop?.notifications && shop.notifications.smsOnOverdue === false) continue;
+        const daysOverdue = Math.ceil((Date.now() - new Date(loan.dueDate))/ (1000*60*60*24));
+        await notifyShopOwner({
+          type: "overdue",
+          customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
+          amount: loan.remaining,
+          loanId: loan.loanId,
+          loanDbId: loan._id,
+          customerId: loan.customer?._id || loan.customer,
+          ownerId: loan.createdBy,
+          details: `Overdue ${daysOverdue} days, Remaining: ${loan.remaining} RWF`
+        });
+        loan.lastOverdueNotifiedAt = new Date();
+        await loan.save();
+        console.log(`📱 Auto overdue SMS sent for ${loan.loanId} to ${loan.customer?.phone}`);
+      } catch (e) { console.warn("overdue SMS failed", loan.loanId, e.message); }
+    }
   } catch (e) { console.warn("overdue cron failed", e.message); }
 }, 10 * 60 * 1000);
 

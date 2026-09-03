@@ -1,5 +1,8 @@
 import User from "../models/User.js";
+import Otp from "../models/Otp.js";
 import { generateToken } from "../utils/generateToken.js";
+import { sendOTP } from "../utils/sms.js";
+import crypto from "crypto";
 
 export const register = async (req, res) => {
   const { name, email, phone, password } = req.body;
@@ -82,4 +85,54 @@ export const updateProfile = async (req, res) => {
     });
   } catch (e) { console.warn("Profile notify failed", e.message); }
   res.json({ user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role } });
+};
+
+export const forgotPassword = async (req, res) => {
+  const { identifier, phone, email } = req.body;
+  const id = (identifier || phone || email || "").trim().toLowerCase();
+  if (!id) return res.status(400).json({ message: "Phone or email required" });
+  // find user by phone or email
+  let user = null;
+  if (id.includes("@")) user = await User.findOne({ email: id });
+  else user = await User.findOne({ phone: id.replace(/\D/g,"") }) || await User.findOne({ email: id });
+  if (!user) return res.status(404).json({ message: "User not found" });
+  const otp = String(Math.floor(100000 + Math.random()*900000));
+  const hashed = crypto.createHash("sha256").update(otp).digest("hex");
+  await Otp.deleteMany({ identifier: id });
+  await Otp.create({ identifier: id, otp: hashed, purpose: "reset" });
+  const toPhone = user.phone || id;
+  try { await sendOTP({ to: toPhone, otp, purpose: "password reset" }); } catch(e){ console.warn("OTP send failed", e.message); }
+  // In production don't return OTP; for dev, include if simulated
+  const isSimulated = !process.env.SMSCONNECT_API_KEY && !process.env.ESMS_API_KEY;
+  res.json({ message: "OTP sent to " + (user.phone ? "phone" : "email"), simulated: isSimulated, ...(isSimulated ? { otp } : {}) });
+};
+
+export const verifyOtp = async (req, res) => {
+  const { identifier, phone, email, otp } = req.body;
+  const id = (identifier || phone || email || "").trim().toLowerCase();
+  if (!id || !otp) return res.status(400).json({ message: "identifier and otp required" });
+  const hashed = crypto.createHash("sha256").update(String(otp)).digest("hex");
+  const rec = await Otp.findOne({ identifier: id, otp: hashed });
+  if (!rec) return res.status(400).json({ message: "Invalid or expired OTP" });
+  if (rec.expiresAt < new Date()) return res.status(400).json({ message: "OTP expired" });
+  res.json({ message: "OTP verified", verified: true });
+};
+
+export const resetPassword = async (req, res) => {
+  const { identifier, phone, email, otp, newPassword } = req.body;
+  const id = (identifier || phone || email || "").trim().toLowerCase();
+  if (!id || !otp || !newPassword) return res.status(400).json({ message: "identifier, otp and newPassword required" });
+  if (String(newPassword).length < 4) return res.status(400).json({ message: "Password must be at least 4 characters" });
+  const hashed = crypto.createHash("sha256").update(String(otp)).digest("hex");
+  const rec = await Otp.findOne({ identifier: id, otp: hashed });
+  if (!rec) return res.status(400).json({ message: "Invalid or expired OTP" });
+  if (rec.expiresAt < new Date()) return res.status(400).json({ message: "OTP expired" });
+  let user = null;
+  if (id.includes("@")) user = await User.findOne({ email: id });
+  else user = await User.findOne({ phone: id.replace(/\D/g,"") }) || await User.findOne({ email: id });
+  if (!user) return res.status(404).json({ message: "User not found" });
+  user.password = String(newPassword);
+  await user.save();
+  await Otp.deleteMany({ identifier: id });
+  res.json({ message: "Password reset successful" });
 };

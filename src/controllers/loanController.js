@@ -2,6 +2,7 @@ import Loan from "../models/Loan.js";
 import Customer from "../models/Customer.js";
 import Log from "../models/Log.js";
 import Counter from "../models/Counter.js";
+import Payment from "../models/Payment.js";
 import { notifyShopOwner } from "../utils/shopNotifier.js";
 
 const generateLoanId = async () => {
@@ -15,9 +16,14 @@ const generateLoanId = async () => {
 };
 
 export const getLoans = async (req, res) => {
-  const { status, search = "", page = 1, limit = 6 } = req.query;
+  const { status, search = "", page = 1, limit = 6, from, to } = req.query;
   let q = {};
   if (status && status !== "All") q.status = status;
+  if (from || to) {
+    q.createdAt = {};
+    if (from) q.createdAt.$gte = new Date(from);
+    if (to) q.createdAt.$lte = new Date(to);
+  }
   // search by loanId or items
   if (search) {
     q.$or = [
@@ -85,12 +91,26 @@ export const collectPayment = async (req, res) => {
   const amt = Number(amount);
   if (!amt || amt <=0) return res.status(400).json({message:"Invalid amount"});
   if (amt > loan.remaining) return res.status(400).json({message:"Amount exceeds remaining balance"});
+  const principalBefore = loan.principal;
   loan.remaining -= amt;
   if (loan.remaining === 0) loan.status = "Paid";
   await loan.save();
+  const payment = await Payment.create({ loan: loan._id, loanId: loan.loanId, customer: loan.customer._id, amount: amt, remainingAfter: loan.remaining, principalBefore, createdBy: req.user._id });
   await Log.create({ type:"payment", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: amt, loanId: loan.loanId, loan: loan._id, customer: loan.customer._id });
   notifyShopOwner({ type:"payment", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: amt, loanId: loan.loanId, loanDbId: loan._id, customerId: loan.customer._id, ownerId: req.user._id, details: `Paid ${amt} RWF Remaining: ${loan.remaining} RWF` });
-  res.json(loan);
+  res.json({ loan, payment });
+};
+
+export const getPaymentHistory = async (req, res) => {
+  const { id } = req.params;
+  const payments = await Payment.find({ loan: id }).sort({ createdAt: -1 }).populate("customer", "firstName lastName phone");
+  res.json(payments);
+};
+
+export const getCustomerPayments = async (req, res) => {
+  const { id } = req.params; // customer id
+  const payments = await Payment.find({ customer: id }).sort({ createdAt: -1 }).populate("loan", "loanId");
+  res.json(payments);
 };
 
 export const getLoanById = async (req, res) => {
@@ -191,6 +211,20 @@ export const getLoanReceiptPdf = async (req, res) => {
   doc.text(`Receipt link: ${process.env.FRONTEND_URL || "https://musiramuloan.netlify.app"}/receipt/${loan.loanId}`, 40, y+10, { align: "center", width: 515 });
 
   doc.end();
+};
+
+export const exportLoansCsv = async (req, res) => {
+  const loans = await Loan.find().populate("customer").sort({ createdAt: -1 });
+  const header = "loanId,customer,phone,items,principal,remaining,status,dueDate,createdAt\n";
+  const rows = loans.map(l=> {
+    const cust = l.customer ? `${l.customer.firstName} ${l.customer.lastName}` : "";
+    const phone = l.customer?.phone || "";
+    const items = `"${String(l.items).replace(/"/g,'""')}"`;
+    return `${l.loanId},${cust},${phone},${items},${l.principal},${l.remaining},${l.status},${new Date(l.dueDate).toISOString().slice(0,10)},${new Date(l.createdAt).toISOString().slice(0,10)}`;
+  }).join("\n");
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", "attachment; filename=loans.csv");
+  res.send(header + rows);
 };
 
 export const addItemsToLoan = async (req, res) => {

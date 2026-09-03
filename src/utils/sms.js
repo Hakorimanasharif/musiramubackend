@@ -17,6 +17,7 @@
  */
 
 import axios from "axios";
+import SmsLog from "../models/SmsLog.js";
 
 const DEFAULT_API_URL = "https://sms.esmsafrica.io/api/messages/send";
 const LEGACY_API_URL = "https://api.esmsafrica.io/v1/sms/send";
@@ -64,7 +65,7 @@ const buildPayload = (url, to, text, senderId) => {
   return { to: to.replace("+", ""), from: sender, message: text };
 };
 
-export const sendSMS = async ({ to, message, text, senderId } = {}) => {
+export const sendSMS = async ({ to, message, text, senderId, type = "loan", loan = null, customer = null } = {}) => {
   const finalText = text || message;
   if (!to || !finalText) {
     console.warn("⚠️  sendSMS called without to/text");
@@ -117,6 +118,21 @@ export const sendSMS = async ({ to, message, text, senderId } = {}) => {
         console.error("SMS failed:", error.response?.data || error.message);
       }
     }
+    // Log to SmsLog for delivery reports
+    results.forEach(r => {
+      SmsLog.create({
+        to: r.to,
+        message: finalText.slice(0, 500),
+        provider: "smsconnect",
+        status: r.success ? "sent" : "failed",
+        cost: r.data?.data?.cost ?? r.data?.cost ?? 0,
+        balance: String(r.data?.data?.balance ?? r.data?.balance ?? ""),
+        providerMessageId: String(r.data?.data?.message_id ?? r.data?.message_id ?? r.data?.id ?? ""),
+        type, loan, customer,
+        error: r.error,
+        raw: r.data
+      }).catch(()=>{});
+    });
     const allOk = results.every((r) => r.success);
     if (allOk) return { success: true, provider: "smsconnect", to: formatted, results, data: results[0]?.data };
     console.log(`📱 [SMSConnect] ${results.filter((r) => r.success).length}/${results.length} sent. Last error: ${lastError}`);
@@ -132,6 +148,9 @@ export const sendSMS = async ({ to, message, text, senderId } = {}) => {
 
   if (!apiKey) {
     console.log("📱 [SMS SIMULATED] No SMS API key (SMSCONNECT_API_KEY or ESMS_API_KEY) - logged to console only. Get SMSConnect at https://smsconnect.tech/docs or eSMS at https://auth.esmsafrica.io/register?service=sms");
+    formatted.forEach(to => {
+      SmsLog.create({ to, message: finalText.slice(0,500), provider: "simulated", status: "simulated", type, loan, customer, raw: { simulated:true } }).catch(()=>{});
+    });
     return { simulated: true, to: formatted, message: finalText, sender_id: sender };
   }
 
@@ -162,6 +181,21 @@ export const sendSMS = async ({ to, message, text, senderId } = {}) => {
     }
   }
 
+  // Log eSMS delivery
+  results.forEach(r => {
+    SmsLog.create({
+      to: r.to,
+      message: finalText.slice(0,500),
+      provider: "esms",
+      status: r.success ? "sent" : "failed",
+      cost: r.data?.cost ?? r.data?.route_cost ?? 0,
+      balance: String(r.data?.balance ?? ""),
+      providerMessageId: String(r.data?.id ?? ""),
+      type, loan, customer,
+      error: r.error,
+      raw: r.data
+    }).catch(()=>{});
+  });
   const allOk = results.every((r) => r.success);
   if (allOk) {
     return { success: true, provider: "esms", to: formatted, results, data: results[0]?.data };

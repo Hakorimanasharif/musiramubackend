@@ -1,6 +1,7 @@
 import express from "express";
 import { protect } from "../middleware/auth.js";
 import sendSMS, { sendOTP, getSmsBalance, formatRwPhone } from "../utils/sms.js";
+import SmsLog from "../models/SmsLog.js";
 
 const router = express.Router();
 
@@ -45,6 +46,17 @@ router.get("/balance", async (req, res) => {
   const bal = await getSmsBalance();
   if (bal.success) return res.json(bal);
   return res.status(502).json(bal);
+});
+
+// GET /api/sms/logs - delivery reports
+router.get("/logs", async (req, res) => {
+  const { page = 1, limit = 20, type, to } = req.query;
+  const q = {};
+  if (type) q.type = type;
+  if (to) q.to = { $regex: String(to).replace(/\D/g,""), $options: "i" };
+  const total = await SmsLog.countDocuments(q);
+  const logs = await SmsLog.find(q).sort({ createdAt: -1 }).skip((page-1)*limit).limit(Number(limit));
+  res.json({ logs, total, page: Number(page), pages: Math.ceil(total/limit) });
 });
 
 // GET /api/sms/format?phone=0788123456 - debug formatter

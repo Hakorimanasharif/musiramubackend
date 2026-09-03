@@ -10,13 +10,16 @@ export const getShopProfile = async (req, res) => {
 };
 
 export const updateShopProfile = async (req, res) => {
-  const { shopName, currency, phone, email } = req.body;
+  const { shopName, currency, phone, email, notifications } = req.body;
   let profile = await ShopProfile.findOne({ owner: req.user._id });
   if (!profile) profile = new ShopProfile({ owner: req.user._id });
   if (shopName !== undefined) profile.shopName = shopName;
   if (currency !== undefined) profile.currency = currency;
   if (phone !== undefined) profile.phone = phone;
   if (email !== undefined) profile.email = email;
+  if (notifications && typeof notifications === "object") {
+    profile.notifications = { ...profile.notifications, ...notifications };
+  }
   await profile.save();
   // Notify shop owner about profile change
   notifyShopOwner({
