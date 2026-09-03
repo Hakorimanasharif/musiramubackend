@@ -9,12 +9,14 @@
  *
  * SMSConnect Rwanda (https://smsconnect.tech):
  *   Docs: https://smsconnect.tech/docs
- *   Endpoint: POST https://api.smsconnect.rw/v1/send
- *     Body: { to: "+250788123456", from: "MyBrand", message: "text" }
- *     Header: Authorization: Bearer <SMSCONNECT_API_KEY>
+ *   Endpoint: POST https://smsconnect.tech/api/v1/sms/send
+ *     Body: { recipient: "250788123456", message: "text", sender_id: "MyBrand" }
+ *     Header: Authorization: Bearer <SMSCONNECT_API_KEY> + X-API-SECRET: <SMSCONNECT_API_SECRET>
  *   If SMSCONNECT_API_KEY set, it is used first. Else fallback to ESMS.
  *   If neither set, simulated mode (console only).
  */
+
+import axios from "axios";
 
 const DEFAULT_API_URL = "https://sms.esmsafrica.io/api/messages/send";
 const LEGACY_API_URL = "https://api.esmsafrica.io/v1/sms/send";
@@ -24,7 +26,13 @@ const SMSCONNECT_DEFAULT_URL = "https://smsconnect.tech/api/v1/sms/send";
 export const formatRwPhone = (phone) => {
   if (!phone) return null;
   let p = String(phone).replace(/[\s\-\(\)]/g, "");
-  if (/^0\d{9}$/.test(p)) p = `+250${p.slice(1)}`;
+  // handle 9-digit input like 79838890 (without leading 0) or 079838890 (9 chars with 0 - missing digit case)
+  // normalize: if 9 chars starting 0 -> treat as typo, convert by stripping 0
+  if (/^0\d{8}$/.test(p)) {
+    // 079838890 (9 chars) -> +25079838890 - will be 8 digits after 250, but we pad to validate
+    p = `+250${p.slice(1)}`;
+    // if still not valid length, keep for validation
+  } else if (/^0\d{9}$/.test(p)) p = `+250${p.slice(1)}`;
   else if (/^\d{9}$/.test(p)) p = `+250${p}`;
   else if (/^\d{10}$/.test(p) && p.startsWith("250")) p = `+${p}`;
   else if (/^250\d{9}$/.test(p)) p = `+${p}`;
@@ -75,43 +83,43 @@ export const sendSMS = async ({ to, message, text, senderId } = {}) => {
   const smsConnectSecret = process.env.SMSCONNECT_API_SECRET;
   const esmsKey = process.env.ESMS_API_KEY || process.env.SMS_API_KEY;
 
-  // Try SMSConnect first if configured (requires both key + secret per docs)
+  // Try SMSConnect first if configured
   if (smsConnectKey) {
     if (!smsConnectSecret) {
       console.warn("⚠️  SMSConnect: SMSCONNECT_API_SECRET missing — need both key and secret. Check https://smsconnect.tech/docs#authentication");
     }
     const sender = sanitizeSenderId(senderId || process.env.SMSCONNECT_SENDER_ID || process.env.SMS_SENDER_ID || "MusiRamu");
     const apiUrl = process.env.SMSCONNECT_API_URL || SMSCONNECT_DEFAULT_URL;
-    console.log(`\n📱 [SMS via SMSConnect] To: ${formatted.join(", ")}\nText: ${finalText.slice(0, 160)}${finalText.length > 160 ? "..." : ""}\nSender: ${sender} | URL: ${apiUrl}\n`);
+    console.log(`\n📱 [SMS via SMSConnect axios] To: ${formatted.join(", ")}\nText: ${finalText.slice(0, 160)}${finalText.length > 160 ? "..." : ""}\nSender: ${sender} | URL: ${apiUrl}\n`);
     const results = [];
     let lastError = null;
     for (const recipient of formatted) {
-      // SMSConnect expects recipient without + as 2507... per docs, but accepts +250 too — strip +
+      // SMSConnect expects recipient without + as 2507... per docs
       const recipientClean = recipient.replace(/^\+/, "");
       const body = { recipient: recipientClean, message: finalText, sender_id: sender };
-      const headers = { "Authorization": `Bearer ${smsConnectKey}`, "Content-Type": "application/json", "Accept": "application/json" };
+      const headers = {
+        Authorization: `Bearer ${smsConnectKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      };
       if (smsConnectSecret) headers["X-API-SECRET"] = smsConnectSecret;
       try {
-        const res = await fetch(apiUrl, { method: "POST", headers, body: JSON.stringify(body) });
-        const raw = await res.text();
-        let data; try { data = JSON.parse(raw); } catch { data = { raw }; }
-        if (res.ok) {
-          console.log(`✅ SMSConnect sent to ${recipient} | ${JSON.stringify(data).slice(0, 350)}`);
-          results.push({ to: recipient, success: true, provider: "smsconnect", data });
-        } else {
-          console.warn(`⚠️  SMSConnect failed ${res.status}:`, raw.slice(0, 800));
-          results.push({ to: recipient, success: false, provider: "smsconnect", status: res.status, error: raw.slice(0, 400), data });
-          lastError = `SMSConnect ${res.status}: ${raw.slice(0, 300)}`;
-        }
-      } catch (e) {
-        console.warn(`⚠️  SMSConnect error to ${recipient}:`, e.message);
-        results.push({ to: recipient, success: false, provider: "smsconnect", error: e.message });
-        lastError = e.message;
+        const response = await axios.post(apiUrl, body, { headers, timeout: 15000 });
+        const data = response.data;
+        console.log(`✅ SMSConnect sent to ${recipient} | ${JSON.stringify(data).slice(0, 350)}`);
+        results.push({ to: recipient, success: true, provider: "smsconnect", data });
+      } catch (error) {
+        const status = error.response?.status;
+        const raw = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+        console.warn(`⚠️  SMSConnect failed ${status || ""}:`, raw.slice(0, 800));
+        results.push({ to: recipient, success: false, provider: "smsconnect", status, error: raw.slice(0, 400), data: error.response?.data });
+        lastError = `SMSConnect ${status || "error"}: ${raw.slice(0, 300)}`;
+        console.error("SMS failed:", error.response?.data || error.message);
       }
     }
-    const allOk = results.every(r=>r.success);
+    const allOk = results.every((r) => r.success);
     if (allOk) return { success: true, provider: "smsconnect", to: formatted, results, data: results[0]?.data };
-    console.log(`📱 [SMSConnect] ${results.filter(r=>r.success).length}/${results.length} sent. Last error: ${lastError}`);
+    console.log(`📱 [SMSConnect] ${results.filter((r) => r.success).length}/${results.length} sent. Last error: ${lastError}`);
     // if SMSConnect configured but fails, do not fallback to eSMS to avoid double charge — return error
     return { success: false, provider: "smsconnect", to: formatted, results, error: lastError };
   }
@@ -120,7 +128,7 @@ export const sendSMS = async ({ to, message, text, senderId } = {}) => {
   const sender = sanitizeSenderId(senderId || process.env.ESMS_SENDER_ID || process.env.SMS_SENDER_ID || "MusiRamu");
   const apiUrl = process.env.ESMS_API_URL || DEFAULT_API_URL;
 
-  console.log(`\n📱 [SMS via eSMS] To: ${formatted.join(", ")}\nText: ${finalText.slice(0, 160)}${finalText.length > 160 ? "..." : ""}\nSender: ${sender} | URL: ${apiUrl}\n`);
+  console.log(`\n📱 [SMS via eSMS axios] To: ${formatted.join(", ")}\nText: ${finalText.slice(0, 160)}${finalText.length > 160 ? "..." : ""}\nSender: ${sender} | URL: ${apiUrl}\n`);
 
   if (!apiKey) {
     console.log("📱 [SMS SIMULATED] No SMS API key (SMSCONNECT_API_KEY or ESMS_API_KEY) - logged to console only. Get SMSConnect at https://smsconnect.tech/docs or eSMS at https://auth.esmsafrica.io/register?service=sms");
@@ -130,41 +138,27 @@ export const sendSMS = async ({ to, message, text, senderId } = {}) => {
   const results = [];
   let lastError = null;
 
-  // New API requires 1 request per recipient; legacy can batch but we loop for consistency
   for (const recipient of formatted) {
     const body = buildPayload(apiUrl, recipient, finalText, sender);
     const headers = {
-      "Authorization": `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     };
 
     try {
-      const res = await fetch(apiUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
-      const raw = await res.text();
-      let data;
-      try { data = JSON.parse(raw); } catch { data = { raw }; }
-
-      if (res.ok) {
-        console.log(`✅ eSMS sent to ${recipient} | id=${data.id || "n/a"} cost=${data.cost ?? data.route_cost ?? "?"} | ${JSON.stringify(data).slice(0, 250)}`);
-        results.push({ to: recipient, success: true, provider: "esms", data });
-      } else {
-        // Provide helpful hints for common errors
-        let hint = "";
-        if (res.status === 403) hint = " (Sender ID not approved for Rwanda or not found - register at sms.esmsafrica.io Sender IDs)";
-        if (res.status === 422) hint = " (Wallet balance too low - top up at auth.esmsafrica.io)";
-        if (res.status === 400 && data?.detail) hint += ` detail:${data.detail}`;
-        console.warn(`⚠️  eSMS failed to ${recipient} ${res.status}${hint}:`, raw.slice(0, 600));
-        results.push({ to: recipient, success: false, provider: "esms", status: res.status, error: raw.slice(0, 300), data });
-        lastError = `eSMS failed ${res.status}: ${raw.slice(0, 200)}${hint}`;
-      }
-    } catch (e) {
-      console.warn(`⚠️  eSMS fetch error to ${recipient}:`, e.message);
-      results.push({ to: recipient, success: false, provider: "esms", error: e.message });
-      lastError = e.message;
+      const response = await axios.post(apiUrl, body, { headers, timeout: 15000 });
+      const data = response.data;
+      console.log(`✅ eSMS sent to ${recipient} | id=${data.id || "n/a"} cost=${data.cost ?? data.route_cost ?? "?"} | ${JSON.stringify(data).slice(0, 250)}`);
+      results.push({ to: recipient, success: true, provider: "esms", data });
+    } catch (error) {
+      const status = error.response?.status;
+      const raw = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+      let hint = "";
+      if (status === 403) hint = " (Sender ID not approved for Rwanda or not found - register at sms.esmsafrica.io Sender IDs)";
+      if (status === 422) hint = " (Wallet balance too low - top up at auth.esmsafrica.io)";
+      console.warn(`⚠️  eSMS failed to ${recipient} ${status}${hint}:`, raw.slice(0, 600));
+      results.push({ to: recipient, success: false, provider: "esms", status, error: raw.slice(0, 300), data: error.response?.data });
+      lastError = `eSMS failed ${status}: ${raw.slice(0, 200)}${hint}`;
     }
   }
 
@@ -172,8 +166,7 @@ export const sendSMS = async ({ to, message, text, senderId } = {}) => {
   if (allOk) {
     return { success: true, provider: "esms", to: formatted, results, data: results[0]?.data };
   }
-  // partial or full failure - don't throw, keep business flow alive but return error
-  console.log(`📱 [eSMS] ${results.filter((r)=>r.success).length}/${results.length} sent. Last error: ${lastError}`);
+  console.log(`📱 [eSMS] ${results.filter((r) => r.success).length}/${results.length} sent. Last error: ${lastError}`);
   return { success: false, provider: "esms", simulated: false, to: formatted, results, error: lastError };
 };
 
@@ -185,7 +178,7 @@ export const sendOTP = async ({ to, otp, senderId, purpose = "verification" }) =
   return { ...res, otp };
 };
 
-// Helper: Check wallet balance (smsconnect or esms)
+// Helper: Check wallet balance (smsconnect or esms) - now via axios
 export const getSmsBalance = async () => {
   const smsConnectKey = process.env.SMSCONNECT_API_KEY;
   const smsConnectSecret = process.env.SMSCONNECT_API_SECRET;
@@ -194,24 +187,21 @@ export const getSmsBalance = async () => {
     const headers = { Authorization: `Bearer ${smsConnectKey}`, Accept: "application/json" };
     if (smsConnectSecret) headers["X-API-SECRET"] = smsConnectSecret;
     try {
-      const res = await fetch(url, { headers });
-      const data = await res.json().catch(()=>({ raw: "no json"}));
-      if (res.ok) return { success: true, provider: "smsconnect", data: data.data || data };
-      return { success: false, provider: "smsconnect", error: data };
-    } catch (e) {
-      return { success: false, provider: "smsconnect", error: e.message };
+      const response = await axios.get(url, { headers, timeout: 10000 });
+      const data = response.data;
+      return { success: true, provider: "smsconnect", data: data.data || data };
+    } catch (error) {
+      return { success: false, provider: "smsconnect", error: error.response?.data || error.message, status: error.response?.status };
     }
   }
   const apiKey = process.env.ESMS_API_KEY || process.env.SMS_API_KEY;
   if (!apiKey) return { simulated: true, error: "No API key (SMSCONNECT_API_KEY or ESMS_API_KEY)" };
   const url = "https://sms.esmsafrica.io/api/balance";
   try {
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
-    const data = await res.json();
-    if (res.ok) return { success: true, provider: "esms", data };
-    return { success: false, provider: "esms", error: data };
-  } catch (e) {
-    return { success: false, provider: "esms", error: e.message };
+    const response = await axios.get(url, { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 10000 });
+    return { success: true, provider: "esms", data: response.data };
+  } catch (error) {
+    return { success: false, provider: "esms", error: error.response?.data || error.message, status: error.response?.status };
   }
 };
 
