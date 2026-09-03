@@ -25,11 +25,11 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       }
     }
 
-    // Fetch customer for loan-related notifications
+    // Fetch customer for all notifications (including customer creation)
     let customerEmail = null;
     let customerPhone = null;
     let customerFullName = customerName;
-    if (customerId && ["loan","payment","overdue","add_items"].includes(type)) {
+    if (customerId) {
       try {
         const fetchedCustomer = await Customer.findById(customerId).select("email phone firstName lastName");
         if (fetchedCustomer) {
@@ -37,6 +37,15 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           customerPhone = fetchedCustomer.phone || null;
           customerFullName = `${fetchedCustomer.firstName} ${fetchedCustomer.lastName}`;
         }
+      } catch {}
+    }
+    // also try to find by name if customerId not provided for customer type
+    if (!customerPhone && type==="customer" && customerName) {
+      try {
+        const byName = customerName.split(" ");
+        const f = await Customer.findOne({ firstName: byName[0], lastName: byName.slice(1).join(" ") }).select("phone email");
+        if (byName.length>=2 && f?.phone) customerPhone = f.phone;
+        if (f?.email) customerEmail = f.email;
       } catch {}
     }
 
@@ -93,10 +102,17 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       html: htmlBody,
     });
 
-    // Also send personalized email/SMS to customer - for loan use exact Kinyarwanda template requested
-    if (customerEmail && ["loan","payment","overdue","add_items"].includes(type)) {
-      let custSubject, custText, custHtml, smsTextCustomer;
-      if (type === "loan") {
+    // Also send personalized email/SMS to customer - personalized, works with phone even if no email
+    let smsTextCustomer = null;
+    if ((customerEmail || customerPhone) && ["loan","payment","overdue","add_items","customer"].includes(type)) {
+      let custSubject, custText, custHtml;
+      if (type === "customer") {
+        custSubject = `[${shopName}] Murakaza neza - ${customerFullName}`;
+        custText = `Murakaza neza ${customerFullName},\n\nWanditswe neza muri ${shopName}. Murakoze kutugirira icyizere.\n\n${shopName} ${shopPhone} • ${shopEmail}`;
+        custHtml = `<div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden"><div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:20px;color:white"><h2 style="margin:0">Murakaza neza ${customerFullName}</h2><p style="margin:4px 0 0 0;opacity:0.9;font-size:12px">${shopName}</p></div><div style="padding:20px;background:#fff"><p>Wanditswe neza muri <strong>${shopName}</strong>. Murakoze kutugirira icyizere.</p><p style="font-size:12px;color:#64748b">${shopPhone} • ${shopEmail}</p></div></div>`;
+        if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
+        smsTextCustomer = `${shopName}: Murakaza neza ${customerFullName}, wanditswe neza. Murakoze!`.slice(0,160);
+      } else if (type === "loan") {
         // Fetch loan to get dueDate and items for proper formatting
         let loanForMsg = null;
         try { if (loanDbId) { const LoanModel = (await import("../models/Loan.js")).default; loanForMsg = await LoanModel.findById(loanDbId).lean(); } } catch {}
@@ -135,8 +151,8 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         </div>
       `;
         const smsLoan = `Mukiriya mwiza ${customerFullName}, Twemeje ko mwahawe umwenda ${loanId}, ugizwe na ${itemsNames}, ufite agaciro ka ${amountFmt}. Itariki yo kwishyura: ${dueStr} Reba: ${receiptLink}`.slice(0, 160);
-        sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
-        // Store for SMS below
+        if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
+        // Store for SMS below - same message for admin and customer as requested
         smsTextCustomer = smsLoan;
       } else {
         const rwLabel = { payment: "Kwishyura kwakiriwe", overdue: "Umwenda warengeje igihe", add_items: "Ibintu byongewe ku mwenda" }[type] || typeLabel;
@@ -159,14 +175,18 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           </div>
         </div>
       `;
-        sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
+        if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
         smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
       }
     }
 
-    // Build SMS text - shop in EN - SMSConnect limit 160 chars
-    const smsTextShop = `${shopName}: ${typeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
+    // Build SMS text - SAME message for admin and customer as requested (Kinyarwanda, 160 chars)
+    let smsTextShop = `${shopName}: ${typeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
     if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${typeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
+    // Make admin and customer receive SAME SMS (user request: even admin see same message)
+    if (smsTextCustomer && ["loan","payment","add_items","customer","overdue"].includes(type)) {
+      smsTextShop = smsTextCustomer;
+    }
 
     // SMS recipients: shop phone + owner phone
     let ownerPhone = null;
@@ -177,12 +197,16 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     const smsRecipientsShop = [...new Set([shopPhone, ownerPhone].filter(Boolean))];
     const smsRecipientsCustomer = customerPhone ? [customerPhone] : [];
 
-    await sendSMS({
+    console.log(`📱 SMS content [${type}] shop: "${smsTextShop}" customer: "${smsTextCustomer}" shopRecipients:${smsRecipientsShop.join(",")} customerRecipients:${smsRecipientsCustomer.join(",")}`);
+    const shopSmsRes = await sendSMS({
       to: smsRecipientsShop,
       message: smsTextShop,
     });
-    if (smsRecipientsCustomer.length && ["loan","payment","overdue","add_items"].includes(type)) {
-      sendSMS({ to: smsRecipientsCustomer, message: smsTextCustomer }).catch(e=>console.warn("customer SMS failed",e.message));
+    console.log(`📱 Shop SMS result:`, JSON.stringify(shopSmsRes).slice(0,400));
+    if (smsRecipientsCustomer.length && ["loan","payment","overdue","add_items","customer"].includes(type)) {
+      const custRes = await sendSMS({ to: smsRecipientsCustomer, message: smsTextCustomer });
+      console.log(`📱 Customer SMS result:`, JSON.stringify(custRes).slice(0,400));
+      if (!custRes.success && !custRes.simulated) console.warn("customer SMS failed", custRes.error);
     }
 
     // Also store as log for shop owner visibility (prefix to distinguish)
