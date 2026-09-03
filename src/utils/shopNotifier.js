@@ -150,13 +150,13 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           <p style="text-align:center;font-size:10px;color:#94a3b8;margin-top:12px">Receipt: ${receiptLink}</p>
         </div>
       `;
-        // Build SMS loan - total + taking date + due date (uzishyura) + loan link as requested, 160 limit
+        // Build SMS loan - total + taking date + due date (uzishyurwa) + loan link as requested, 160 limit
         const loanLink = receiptLink;
         const takingDate = loanForMsg?.createdAt ? new Date(loanForMsg.createdAt) : new Date();
         const takingStr = `${String(takingDate.getDate()).padStart(2,'0')}/${String(takingDate.getMonth()+1).padStart(2,'0')}`;
         const shortDue = dueStr.slice(0,5); // 10/09
         const loanPrefix = `Mukiriya mwiza ${customerFullName}, twemeje ko mwahawe umwenda: `;
-        const loanSuffix = `, agaciro ${amountFmt}. Waf ${takingStr} uzish ${shortDue} Reba ${loanLink}`;
+        const loanSuffix = `, agaciro ${amountFmt}. Waf ${takingStr} uzishyurwa ${shortDue} Reba ${loanLink}`;
         const maxItemsLen = 160 - (loanPrefix.length + loanSuffix.length);
         const itemsShort = maxItemsLen > 5 ? (itemsNames.length > maxItemsLen ? itemsNames.slice(0, Math.max(0, maxItemsLen-3)) + "..." : itemsNames) : itemsNames.slice(0, Math.max(0, maxItemsLen));
         const smsLoan = (loanPrefix + itemsShort + loanSuffix).slice(0, 160);
