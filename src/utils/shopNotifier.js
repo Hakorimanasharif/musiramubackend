@@ -93,33 +93,35 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       html: htmlBody,
     });
 
-    // Also send personalized email to customer for loan-related changes - PDF no login needed
+    // Also send personalized email to customer for loan-related changes - Kinyarwanda + PDF no login
     if (customerEmail && ["loan","payment","overdue","add_items"].includes(type)) {
-      const custSubject = `[${shopName}] Your ${typeLabel}: ${loanId ? loanId : ""} ${amountStr}`.trim();
-      const custText = `Hello ${customerFullName},\n\n${typeLabel} for your loan ${loanId || ""} ${amountStr ? `Amount: ${amountStr}` : ""}\n${details ? `${details}\n` : ""}${receiptPdfLink ? `Download PDF Receipt (no login): ${receiptPdfLink}\n` : ""}${receiptLink ? `View on web: ${receiptLink}\n` : ""}Shop: ${shopName} • ${shopPhone}\nTime: ${new Date().toLocaleString()}`;
+      const rwLabel = { loan: "Umwenda mushya", payment: "Kwishyura kwakiriwe", overdue: "Umwenda warengeje igihe", add_items: "Ibintu byongewe ku mwenda" }[type] || typeLabel;
+      const custSubject = `[${shopName}] ${rwLabel}: ${loanId ? loanId : ""} ${amountStr}`.trim();
+      const custText = `Muraho ${customerFullName},\n\n${rwLabel} ku mwenda wawe ${loanId || ""} ${amountStr ? `Amafaranga: ${amountStr}` : ""}\n${details ? `${details}\n` : ""}${receiptPdfLink ? `Manura PDF (nta konti isabwa): ${receiptPdfLink}\n` : ""}${receiptLink ? `Reba kuri web: ${receiptLink}\n` : ""}Iduka: ${shopName} • ${shopPhone}\nIgihe: ${new Date().toLocaleString()}`;
       const custHtml = `
         <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
           <div style="background:linear-gradient(135deg,#059669,#10b981);padding:20px;color:white">
-            <h2 style="margin:0;font-size:18px">Hello ${customerFullName} — ${typeLabel}</h2>
+            <h2 style="margin:0;font-size:18px">Muraho ${customerFullName} — ${rwLabel}</h2>
             <p style="margin:4px 0 0 0;opacity:0.9;font-size:12px">${new Date().toLocaleString()}</p>
           </div>
           <div style="padding:20px;background:#fff">
-            ${loanId ? `<p><strong>Loan:</strong> <span style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:6px">${loanId}</span></p>` : ""}
-            ${amountStr ? `<p><strong>Amount:</strong> <span style="color:#059669;font-weight:700">${amountStr}</span></p>` : ""}
+            ${loanId ? `<p><strong>Umwenda:</strong> <span style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:6px">${loanId}</span></p>` : ""}
+            ${amountStr ? `<p><strong>Amafaranga:</strong> <span style="color:#059669;font-weight:700">${amountStr}</span></p>` : ""}
             ${details ? `<p style="font-size:13px;color:#334155;background:#f0fdf4;padding:10px;border-radius:8px;border:1px solid #bbf7d0">${details}</p>` : ""}
-            ${receiptPdfLink ? `<a href="${receiptPdfLink}" style="display:inline-block;margin-top:12px;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:8px">📄 Download PDF (no login)</a>` : ""}
-            ${receiptLink ? `<a href="${receiptLink}" style="display:inline-block;margin-top:12px;background:#0f766e;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">View on Web →</a>` : ""}
+            ${receiptPdfLink ? `<a href="${receiptPdfLink}" style="display:inline-block;margin-top:12px;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:8px">📄 Manura PDF (nta konti)</a>` : ""}
+            ${receiptLink ? `<a href="${receiptLink}" style="display:inline-block;margin-top:12px;background:#0f766e;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Reba kuri web →</a>` : ""}
             <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
-            <p style="font-size:12px;color:#64748b">Shop: ${shopName} • ${shopPhone} • ${shopEmail}</p>
+            <p style="font-size:12px;color:#64748b">Iduka: ${shopName} • ${shopPhone} • ${shopEmail}</p>
           </div>
         </div>
       `;
       sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
     }
 
-    // Build SMS text - use PDF link (no login) for customers, web link for shop
+    // Build SMS text - shop in EN, customer in Kinyarwanda with PDF
+    const rwLabelSms = { loan: "Umwenda mushya", payment: "Kwishyura", overdue: "Warengeje igihe", add_items: "Byongewe" }[type] || typeLabel;
     const smsTextShop = `${shopName}: ${typeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${details ? `- ${details.slice(0, 60)}` : ""} ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
-    const smsTextCustomer = `${shopName}: Hi ${customerFullName}, ${typeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} PDF: ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
+    const smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwLabelSms} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} PDF: ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
 
     // SMS recipients: shop phone + owner phone
     let ownerPhone = null;
