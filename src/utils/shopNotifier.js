@@ -93,12 +93,56 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       html: htmlBody,
     });
 
-    // Also send personalized email to customer for loan-related changes - Kinyarwanda + PDF no login
+    // Also send personalized email/SMS to customer - for loan use exact Kinyarwanda template requested
     if (customerEmail && ["loan","payment","overdue","add_items"].includes(type)) {
-      const rwLabel = { loan: "Umwenda mushya", payment: "Kwishyura kwakiriwe", overdue: "Umwenda warengeje igihe", add_items: "Ibintu byongewe ku mwenda" }[type] || typeLabel;
-      const custSubject = `[${shopName}] ${rwLabel}: ${loanId ? loanId : ""} ${amountStr}`.trim();
-      const custText = `Muraho ${customerFullName},\n\n${rwLabel} ku mwenda wawe ${loanId || ""} ${amountStr ? `Amafaranga: ${amountStr}` : ""}\n${details ? `${details}\n` : ""}${receiptPdfLink ? `Manura PDF (nta konti isabwa): ${receiptPdfLink}\n` : ""}${receiptLink ? `Reba kuri web: ${receiptLink}\n` : ""}Iduka: ${shopName} • ${shopPhone}\nIgihe: ${new Date().toLocaleString()}`;
-      const custHtml = `
+      let custSubject, custText, custHtml, smsTextCustomer;
+      if (type === "loan") {
+        // Fetch loan to get dueDate and items for proper formatting
+        let loanForMsg = null;
+        try { if (loanDbId) { const LoanModel = (await import("../models/Loan.js")).default; loanForMsg = await LoanModel.findById(loanDbId).lean(); } } catch {}
+        const due = loanForMsg?.dueDate ? new Date(loanForMsg.dueDate) : (details.match(/Due:\s*(\d{4}-\d{2}-\d{2})/)?.[1] ? new Date(details.match(/Due:\s*(\d{4}-\d{2}-\d{2})/)[1]) : new Date());
+        const dueStr = `${String(due.getDate()).padStart(2,'0')}/${String(due.getMonth()+1).padStart(2,'0')}/${due.getFullYear()}`;
+        const itemsNames = loanForMsg?.lineItems?.length ? loanForMsg.lineItems.map(i=>i.name).join(" na ") : (details.match(/Items:\s*(.+?)\s*Due:/)?.[1] || "ibintu");
+        const amountFmt = amountStr || (amount ? `${new Intl.NumberFormat("en-RW").format(amount)} RWF` : "");
+        // Exact format requested
+        custSubject = `[${shopName}] Umwenda mushya - ${loanId}`;
+        custText = `Mukiriya mwiza ${customerFullName},\n\nTwemeje ko mwahawe umwenda ufite nimero ${loanId}, ugizwe na ${itemsNames}, ufite agaciro ka ${amountFmt}.\n\nItariki yo kwishyura: ${dueStr}\n\nReba inyemezabwishyu: ${receiptLink}\nReba PDF: ${receiptPdfLink}\n\nMurakoze kutugirira icyizere.\n\n${shopName}\n${shopPhone} • ${shopEmail}`;
+        custHtml = `
+        <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#f8fafc;padding:16px">
+          <div style="background:white;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.06)">
+            <div style="background:#0f172a;padding:24px;text-align:center;color:white">
+              <div style="width:48px;height:48px;background:white;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;color:#0f172a;font-weight:800;font-size:16px;margin:0 auto">CL</div>
+              <h1 style="margin:12px 0 0 0;font-size:18px;font-weight:800;letter-spacing:-0.02em">${shopName}</h1>
+              <p style="margin:4px 0 0 0;font-size:11px;opacity:0.7;letter-spacing:0.08em;text-transform:uppercase">Debt & Loan Manager • ${dueStr}</p>
+            </div>
+            <div style="padding:28px;background:white">
+              <p style="margin:0;font-size:15px;color:#0f172a">Mukiriya mwiza <strong>${customerFullName}</strong>,</p>
+              <p style="margin:12px 0 0 0;font-size:14px;color:#334155;line-height:1.7">Twemeje ko mwahawe umwenda ufite nimero <strong style="background:#f1f5f9;padding:2px 6px;border-radius:6px;font-family:monospace">${loanId}</strong>, ugizwe na <strong>${itemsNames}</strong>, ufite agaciro ka <strong style="color:#0f172a">${amountFmt}</strong>.</p>
+              <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-top:20px;display:flex;justify-content:space-between;gap:16px">
+                <div><p style="margin:0;font-size:10px;color:#64748b;font-weight:700;letter-spacing:0.08em;text-transform:uppercase">Itariki yo kwishyura</p><p style="margin:6px 0 0 0;font-size:14px;font-weight:800;color:#0f172a">📅 ${dueStr}</p></div>
+                <div style="text-align:right"><p style="margin:0;font-size:10px;color:#64748b;font-weight:700;letter-spacing:0.08em;text-transform:uppercase">Agaciro</p><p style="margin:6px 0 0 0;font-size:14px;font-weight:800;color:#059669">${amountFmt}</p></div>
+              </div>
+              <a href="${receiptLink}" style="display:block;margin-top:20px;background:#0f172a;color:white;text-align:center;padding:14px;border-radius:12px;text-decoration:none;font-weight:700;font-size:14px">🧾 Reba inyemezabwishyu</a>
+              <a href="${receiptPdfLink}" style="display:block;margin-top:10px;background:white;color:#0f172a;text-align:center;padding:12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:13px;border:1px solid #e2e8f0">📄 Manura PDF (nta konti isabwa)</a>
+              <p style="margin:20px 0 0 0;font-size:13px;color:#475569;text-align:center">Murakoze kutugirira icyizere.</p>
+            </div>
+            <div style="background:#f8fafc;padding:16px;text-align:center;border-top:1px solid #e2e8f0">
+              <p style="margin:0;font-size:12px;color:#0f172a;font-weight:700">${shopName}</p>
+              <p style="margin:4px 0 0 0;font-size:11px;color:#64748b">📞 ${shopPhone} • ✉️ ${shopEmail}</p>
+            </div>
+          </div>
+          <p style="text-align:center;font-size:10px;color:#94a3b8;margin-top:12px">Receipt: ${receiptLink}</p>
+        </div>
+      `;
+        const smsLoan = `Mukiriya mwiza ${customerFullName}, Twemeje ko mwahawe umwenda ${loanId}, ugizwe na ${itemsNames}, ufite agaciro ka ${amountFmt}. Itariki yo kwishyura: ${dueStr} Reba: ${receiptLink} ${shopName} ${shopPhone}`.slice(0, 320);
+        sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
+        // Store for SMS below
+        smsTextCustomer = smsLoan;
+      } else {
+        const rwLabel = { payment: "Kwishyura kwakiriwe", overdue: "Umwenda warengeje igihe", add_items: "Ibintu byongewe ku mwenda" }[type] || typeLabel;
+        custSubject = `[${shopName}] ${rwLabel}: ${loanId ? loanId : ""} ${amountStr}`.trim();
+        custText = `Muraho ${customerFullName},\n\n${rwLabel} ku mwenda wawe ${loanId || ""} ${amountStr ? `Amafaranga: ${amountStr}` : ""}\n${details ? `${details}\n` : ""}${receiptPdfLink ? `Manura PDF (nta konti isabwa): ${receiptPdfLink}\n` : ""}${receiptLink ? `Reba kuri web: ${receiptLink}\n` : ""}Iduka: ${shopName} • ${shopPhone}\nIgihe: ${new Date().toLocaleString()}`;
+        custHtml = `
         <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
           <div style="background:linear-gradient(135deg,#059669,#10b981);padding:20px;color:white">
             <h2 style="margin:0;font-size:18px">Muraho ${customerFullName} — ${rwLabel}</h2>
@@ -115,13 +159,14 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           </div>
         </div>
       `;
-      sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
+        sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
+        smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} PDF: ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
+      }
     }
 
-    // Build SMS text - shop in EN, customer in Kinyarwanda with PDF
-    const rwLabelSms = { loan: "Umwenda mushya", payment: "Kwishyura", overdue: "Warengeje igihe", add_items: "Byongewe" }[type] || typeLabel;
+    // Build SMS text - shop in EN
     const smsTextShop = `${shopName}: ${typeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${details ? `- ${details.slice(0, 60)}` : ""} ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
-    const smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwLabelSms} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} PDF: ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
+    if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${typeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} PDF: ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
 
     // SMS recipients: shop phone + owner phone
     let ownerPhone = null;
