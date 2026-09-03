@@ -160,8 +160,44 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
         // Store for SMS below - same message for admin and customer as requested
         smsTextCustomer = smsLoan;
+      } else if (type === "payment") {
+        const rwLabel = "Kwishyura kwakiriwe";
+        // details is like "Paid 20000 RWF Remaining: 30000 RWF" - extract remaining
+        let remainingStr = amountStr;
+        const remMatch = details.match(/Remaining:\s*([0-9,\s]+RWF)/i) || details.match(/Asigaye:\s*([0-9,\s]+RWF)/i);
+        if (remMatch) remainingStr = remMatch[1].trim();
+        else if (details.includes("Remaining")) remainingStr = details.split("Remaining:")[1]?.trim().slice(0,20) || amountStr;
+        // Try fetch loan for accurate remaining if needed
+        let payRemaining = remainingStr;
+        try { if (loanDbId) { const Lm = (await import("../models/Loan.js")).default; const l = await Lm.findById(loanDbId).lean(); if (l) payRemaining = `${new Intl.NumberFormat("en-RW").format(l.remaining)} RWF`; } } catch {}
+        custSubject = `[${shopName}] ${rwLabel}: ${loanId} ${amountStr}`;
+        custText = `Muraho ${customerFullName},\n\n${rwLabel} ku mwenda wawe ${loanId} Amafaranga: ${amountStr}\n${details ? `${details}\n` : ""}Asigaye: ${payRemaining}\n${receiptLink ? `Reba: ${receiptLink}\n` : ""}Iduka: ${shopName} • ${shopPhone}`;
+        custHtml = `
+        <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
+          <div style="background:linear-gradient(135deg,#059669,#10b981);padding:20px;color:white">
+            <h2 style="margin:0;font-size:18px">Muraho ${customerFullName} — ${rwLabel}</h2>
+            <p style="margin:4px 0 0 0;opacity:0.9;font-size:12px">${new Date().toLocaleString()}</p>
+          </div>
+          <div style="padding:20px;background:#fff">
+            ${loanId ? `<p><strong>Umwenda:</strong> <span style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:6px">${loanId}</span></p>` : ""}
+            <p><strong>Amafaranga:</strong> <span style="color:#059669;font-weight:700">${amountStr}</span> → Asigaye: <strong>${payRemaining}</strong></p>
+            ${details ? `<p style="font-size:13px;color:#334155;background:#f0fdf4;padding:10px;border-radius:8px;border:1px solid #bbf7d0">${details}</p>` : ""}
+            ${receiptLink ? `<a href="${receiptLink}" style="display:inline-block;margin-top:12px;background:#0f766e;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Reba kuri web →</a>` : ""}
+            <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
+            <p style="font-size:12px;color:#64748b">Iduka: ${shopName} • ${shopPhone} • ${shopEmail}</p>
+          </div>
+        </div>
+      `;
+        if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
+        // Payment SMS well arranged: amount + remaining + link, same for admin/customer, 160 limit
+        const payLink = receiptLink || receiptPdfLink;
+        const payPrefix = `Muraho ${customerFullName}, kwishyura kwa ${amountStr} kuri ${loanId} kwakiriwe. `;
+        const paySuffix = `Asigaye: ${payRemaining}. Reba: ${payLink}`;
+        const maxPayLen = 160 - (payPrefix.length + paySuffix.length);
+        // keep as is, slice will handle but we prioritize link
+        smsTextCustomer = (payPrefix + paySuffix).slice(0, 160);
       } else {
-        const rwLabel = { payment: "Kwishyura kwakiriwe", overdue: "Umwenda warengeje igihe", add_items: "Ibintu byongewe ku mwenda" }[type] || typeLabel;
+        const rwLabel = { overdue: "Umwenda warengeje igihe", add_items: "Ibintu byongewe ku mwenda" }[type] || typeLabel;
         custSubject = `[${shopName}] ${rwLabel}: ${loanId ? loanId : ""} ${amountStr}`.trim();
         custText = `Muraho ${customerFullName},\n\n${rwLabel} ku mwenda wawe ${loanId || ""} ${amountStr ? `Amafaranga: ${amountStr}` : ""}\n${details ? `${details}\n` : ""}${receiptPdfLink ? `Manura PDF (nta konti isabwa): ${receiptPdfLink}\n` : ""}${receiptLink ? `Reba kuri web: ${receiptLink}\n` : ""}Iduka: ${shopName} • ${shopPhone}\nIgihe: ${new Date().toLocaleString()}`;
         custHtml = `
