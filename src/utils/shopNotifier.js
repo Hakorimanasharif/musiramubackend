@@ -222,13 +222,10 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       }
     }
 
-    // Build SMS text - SAME message for admin and customer as requested (Kinyarwanda, 160 chars)
-    let smsTextShop = `${shopName}: ${typeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
+    // Build SMS text - ADMIN (EN) vs CUSTOMER (Kinyarwanda) distinct as requested now
+    let smsTextShop = `${shopName}: [ADMIN] ${typeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${receiptLink ? `Reba: ${receiptLink}` : ""}`.trim().slice(0, 160);
     if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${typeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
-    // Make admin and customer receive SAME SMS (user request: even admin see same message)
-    if (smsTextCustomer && ["loan","payment","add_items","customer","overdue"].includes(type)) {
-      smsTextShop = smsTextCustomer;
-    }
+    // Keep distinct: admin gets [ADMIN] EN, customer gets Kinyarwanda personal
 
     // SMS recipients: shop phone + owner phone
     let ownerPhone = null;
