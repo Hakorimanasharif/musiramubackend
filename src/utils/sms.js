@@ -18,7 +18,7 @@
 
 const DEFAULT_API_URL = "https://sms.esmsafrica.io/api/messages/send";
 const LEGACY_API_URL = "https://api.esmsafrica.io/v1/sms/send";
-const SMSCONNECT_DEFAULT_URL = "https://api.smsconnect.rw/v1/send";
+const SMSCONNECT_DEFAULT_URL = "https://smsconnect.tech/api/v1/sms/send";
 
 // E.164 Rwanda formatter: 07... -> +2507..., 250... -> +250..., etc.
 export const formatRwPhone = (phone) => {
@@ -72,28 +72,36 @@ export const sendSMS = async ({ to, message, text, senderId } = {}) => {
 
   // Provider priority: SMSConnect (Rwanda) -> eSMS Africa -> simulated
   const smsConnectKey = process.env.SMSCONNECT_API_KEY;
+  const smsConnectSecret = process.env.SMSCONNECT_API_SECRET;
   const esmsKey = process.env.ESMS_API_KEY || process.env.SMS_API_KEY;
 
-  // Try SMSConnect first if configured
+  // Try SMSConnect first if configured (requires both key + secret per docs)
   if (smsConnectKey) {
+    if (!smsConnectSecret) {
+      console.warn("⚠️  SMSConnect: SMSCONNECT_API_SECRET missing — need both key and secret. Check https://smsconnect.tech/docs#authentication");
+    }
     const sender = sanitizeSenderId(senderId || process.env.SMSCONNECT_SENDER_ID || process.env.SMS_SENDER_ID || "MusiRamu");
     const apiUrl = process.env.SMSCONNECT_API_URL || SMSCONNECT_DEFAULT_URL;
     console.log(`\n📱 [SMS via SMSConnect] To: ${formatted.join(", ")}\nText: ${finalText.slice(0, 160)}${finalText.length > 160 ? "..." : ""}\nSender: ${sender} | URL: ${apiUrl}\n`);
     const results = [];
     let lastError = null;
     for (const recipient of formatted) {
-      const body = { to: recipient, from: sender, message: finalText };
+      // SMSConnect expects recipient without + as 2507... per docs, but accepts +250 too — strip +
+      const recipientClean = recipient.replace(/^\+/, "");
+      const body = { recipient: recipientClean, message: finalText, sender_id: sender };
+      const headers = { "Authorization": `Bearer ${smsConnectKey}`, "Content-Type": "application/json", "Accept": "application/json" };
+      if (smsConnectSecret) headers["X-API-SECRET"] = smsConnectSecret;
       try {
-        const res = await fetch(apiUrl, { method: "POST", headers: { "Authorization": `Bearer ${smsConnectKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const res = await fetch(apiUrl, { method: "POST", headers, body: JSON.stringify(body) });
         const raw = await res.text();
         let data; try { data = JSON.parse(raw); } catch { data = { raw }; }
         if (res.ok) {
-          console.log(`✅ SMSConnect sent to ${recipient} | ${JSON.stringify(data).slice(0, 250)}`);
+          console.log(`✅ SMSConnect sent to ${recipient} | ${JSON.stringify(data).slice(0, 350)}`);
           results.push({ to: recipient, success: true, provider: "smsconnect", data });
         } else {
-          console.warn(`⚠️  SMSConnect failed ${res.status}:`, raw.slice(0, 600));
-          results.push({ to: recipient, success: false, provider: "smsconnect", status: res.status, error: raw.slice(0, 300), data });
-          lastError = `SMSConnect ${res.status}: ${raw.slice(0, 200)}`;
+          console.warn(`⚠️  SMSConnect failed ${res.status}:`, raw.slice(0, 800));
+          results.push({ to: recipient, success: false, provider: "smsconnect", status: res.status, error: raw.slice(0, 400), data });
+          lastError = `SMSConnect ${res.status}: ${raw.slice(0, 300)}`;
         }
       } catch (e) {
         console.warn(`⚠️  SMSConnect error to ${recipient}:`, e.message);
@@ -180,12 +188,15 @@ export const sendOTP = async ({ to, otp, senderId, purpose = "verification" }) =
 // Helper: Check wallet balance (smsconnect or esms)
 export const getSmsBalance = async () => {
   const smsConnectKey = process.env.SMSCONNECT_API_KEY;
+  const smsConnectSecret = process.env.SMSCONNECT_API_SECRET;
   if (smsConnectKey) {
-    const url = process.env.SMSCONNECT_API_URL ? process.env.SMSCONNECT_API_URL.replace("/send","/balance") : "https://api.smsconnect.rw/v1/balance";
+    const url = "https://smsconnect.tech/api/v1/user";
+    const headers = { Authorization: `Bearer ${smsConnectKey}`, Accept: "application/json" };
+    if (smsConnectSecret) headers["X-API-SECRET"] = smsConnectSecret;
     try {
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${smsConnectKey}` } });
+      const res = await fetch(url, { headers });
       const data = await res.json().catch(()=>({ raw: "no json"}));
-      if (res.ok) return { success: true, provider: "smsconnect", data };
+      if (res.ok) return { success: true, provider: "smsconnect", data: data.data || data };
       return { success: false, provider: "smsconnect", error: data };
     } catch (e) {
       return { success: false, provider: "smsconnect", error: e.message };
