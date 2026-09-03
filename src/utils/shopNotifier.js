@@ -134,7 +134,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           <p style="text-align:center;font-size:10px;color:#94a3b8;margin-top:12px">Receipt: ${receiptLink}</p>
         </div>
       `;
-        const smsLoan = `Mukiriya mwiza ${customerFullName}, Twemeje ko mwahawe umwenda ${loanId}, ugizwe na ${itemsNames}, ufite agaciro ka ${amountFmt}. Itariki yo kwishyura: ${dueStr} Reba: ${receiptLink} ${shopName} ${shopPhone}`.slice(0, 320);
+        const smsLoan = `Mukiriya mwiza ${customerFullName}, Twemeje ko mwahawe umwenda ${loanId}, ugizwe na ${itemsNames}, ufite agaciro ka ${amountFmt}. Itariki yo kwishyura: ${dueStr} Reba: ${receiptLink}`.slice(0, 160);
         sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
         // Store for SMS below
         smsTextCustomer = smsLoan;
@@ -160,13 +160,13 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         </div>
       `;
         sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
-        smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} PDF: ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
+        smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
       }
     }
 
-    // Build SMS text - shop in EN
-    const smsTextShop = `${shopName}: ${typeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${details ? `- ${details.slice(0, 60)}` : ""} ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
-    if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${typeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} PDF: ${receiptPdfLink ? receiptPdfLink : ""}`.trim().slice(0, 320);
+    // Build SMS text - shop in EN - SMSConnect limit 160 chars
+    const smsTextShop = `${shopName}: ${typeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
+    if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${typeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
 
     // SMS recipients: shop phone + owner phone
     let ownerPhone = null;
