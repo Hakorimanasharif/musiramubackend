@@ -150,7 +150,13 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           <p style="text-align:center;font-size:10px;color:#94a3b8;margin-top:12px">Receipt: ${receiptLink}</p>
         </div>
       `;
-        const smsLoan = `Mukiriya mwiza ${customerFullName}, Twemeje ko mwahawe umwenda ${loanId}, ugizwe na ${itemsNames}, ufite agaciro ka ${amountFmt}. Itariki yo kwishyura: ${dueStr} Reba: ${receiptLink}`.slice(0, 160);
+        // Build SMS loan - total only + receipt link (pdf link in email, receipt link shorter for SMS 160 limit)
+        const loanLink = receiptLink; // use frontend receipt (shorter) for SMS, pdf in email
+        const loanPrefix = `Mukiriya mwiza ${customerFullName}, twemeje ko mwahawe umwenda: `;
+        const loanSuffix = `, ufite agaciro ka ${amountFmt}. Reba: ${loanLink}`;
+        const maxItemsLen = 160 - (loanPrefix.length + loanSuffix.length);
+        const itemsShort = maxItemsLen > 5 ? (itemsNames.length > maxItemsLen ? itemsNames.slice(0, Math.max(0, maxItemsLen-3)) + "..." : itemsNames) : itemsNames.slice(0, Math.max(0, maxItemsLen));
+        const smsLoan = (loanPrefix + itemsShort + loanSuffix).slice(0, 160);
         if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
         // Store for SMS below - same message for admin and customer as requested
         smsTextCustomer = smsLoan;
