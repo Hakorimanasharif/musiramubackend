@@ -108,6 +108,91 @@ export const getLoanReceipt = async (req, res) => {
   res.json({ loan, shop, customer: loan.customer });
 };
 
+export const getLoanReceiptPdf = async (req, res) => {
+  const { loanId } = req.params;
+  const loan = await Loan.findOne({ loanId }).populate("customer");
+  if (!loan) return res.status(404).json({message:"Receipt not found"});
+  const ShopProfile = (await import("../models/ShopProfile.js")).default;
+  const shop = await ShopProfile.findOne() || { shopName: "MusiRamu General Shop", email: "info@musiramu.rw", phone: "+250 788 123 456", currency: "RWF" };
+  const formatCurrency = (n) => new Intl.NumberFormat("en-RW").format(n) + " " + (shop.currency || "RWF");
+
+  const PDFDocument = (await import("pdfkit")).default;
+  const doc = new PDFDocument({ size: "A4", margin: 40 });
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="Receipt-${loan.loanId}.pdf"`);
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  doc.pipe(res);
+
+  // Header
+  doc.fillColor("#4f46e5").rect(0,0,600,90).fill();
+  doc.fillColor("white").fontSize(20).font("Helvetica-Bold").text(shop.shopName, 40, 30);
+  doc.fontSize(9).font("Helvetica").text(`${shop.email} • ${shop.phone} • ${shop.currency}`, 40, 55);
+  doc.fontSize(10).text(`Receipt: ${loan.loanId}`, 400, 30, { align: "right" });
+  doc.fontSize(8).text(`Date: ${new Date(loan.createdAt).toISOString().slice(0,10)}  Due: ${new Date(loan.dueDate).toISOString().slice(0,10)}`, 400, 45, { align: "right" });
+  const statusColor = loan.status === "Paid" ? "#10b981" : loan.status === "Overdue" ? "#ef4444" : "#f59e0b";
+  doc.fillColor(statusColor).fontSize(9).font("Helvetica-Bold").text(loan.status.toUpperCase(), 400, 62, { align: "right" });
+
+  doc.fillColor("black");
+  let y = 110;
+  // Customer
+  doc.fontSize(11).font("Helvetica-Bold").text("Customer", 40, y);
+  doc.fontSize(10).font("Helvetica").text(`${loan.customer.firstName} ${loan.customer.lastName}`, 40, y+15);
+  doc.fontSize(8).fillColor("#64748b").text(`${loan.customer.phone}  •  ${loan.customer.email || ""}`, 40, y+28);
+  doc.fillColor("black");
+  // Loan
+  doc.fontSize(11).font("Helvetica-Bold").text("Loan", 350, y);
+  doc.fontSize(9).font("Helvetica").text(`ID: ${loan.loanId}`, 350, y+15);
+  doc.text(`Created: ${new Date(loan.createdAt).toISOString().slice(0,10)}`, 350, y+28);
+
+  y = 160;
+  doc.moveTo(40, y).lineTo(555, y).strokeColor("#e2e8f0").stroke();
+  y += 12;
+  doc.fontSize(10).font("Helvetica-Bold").fillColor("#1e293b").text("Items (no mistake) - All line items:", 40, y);
+  y += 18;
+  // Table header
+  doc.fillColor("white").rect(40, y, 515, 18).fillColor("#475569").fill();
+  doc.fillColor("white").fontSize(8).font("Helvetica-Bold");
+  doc.text("#", 45, y+6);
+  doc.text("Item", 65, y+6);
+  doc.text("Qty", 350, y+6, { width: 40, align: "center" });
+  doc.text("Price", 400, y+6, { width: 70, align: "right" });
+  doc.text("Total", 485, y+6, { width: 65, align: "right" });
+  y += 18;
+  doc.fillColor("black").font("Helvetica").fontSize(8);
+  loan.lineItems.forEach((it, idx) => {
+    if (y > 720) { doc.addPage(); y = 40; }
+    const total = Number(it.qty) * Number(it.price);
+    doc.text(String(idx+1), 45, y+6);
+    doc.text(it.name, 65, y+6, { width: 270 });
+    doc.text(String(it.qty), 350, y+6, { width: 40, align: "center" });
+    doc.text(formatCurrency(it.price), 400, y+6, { width: 70, align: "right" });
+    doc.text(formatCurrency(total), 485, y+6, { width: 65, align: "right" });
+    doc.moveTo(40, y+16).lineTo(555, y+16).strokeColor("#f1f5f9").stroke();
+    y += 16;
+  });
+  y += 10;
+  // Totals
+  const paid = loan.principal - loan.remaining;
+  const percent = Math.round((paid / (loan.principal || 1)) * 100);
+  doc.font("Helvetica-Bold").fontSize(9);
+  doc.text("Principal:", 400, y, { width: 70, align: "right" }); doc.text(formatCurrency(loan.principal), 485, y, { width: 65, align: "right" }); y+=12;
+  doc.fillColor("#10b981").text("Paid:", 400, y, { width: 70, align: "right" }); doc.text(`${formatCurrency(paid)} (${percent}%)`, 485, y, { width: 65, align: "right" }); y+=12;
+  doc.fillColor("#ef4444").text("Remaining:", 400, y, { width: 70, align: "right" }); doc.text(formatCurrency(loan.remaining), 485, y, { width: 65, align: "right" }); y+=14;
+  doc.fillColor("black").moveTo(40, y).lineTo(555, y).strokeColor("#e2e8f0").stroke(); y+=10;
+  // Progress bar
+  doc.fillColor("#e2e8f0").rect(40, y, 515, 8).fill();
+  doc.fillColor(loan.status === "Paid" ? "#10b981" : loan.status === "Overdue" ? "#ef4444" : "#6366f1").rect(40, y, 515 * (percent/100), 8).fill();
+  y+=16;
+  doc.fillColor("#64748b").font("Helvetica").fontSize(7).text(`${percent}% paid • ${loan.status === "Paid" ? "Fully paid ✓" : `Pay ${formatCurrency(loan.remaining)} to complete`}`, 40, y, { align: "center", width: 515 });
+
+  y += 30;
+  doc.fillColor("#64748b").fontSize(7).text(`Official receipt • ${shop.shopName} • ${shop.phone} • ${shop.email} • ${new Date().toLocaleString()}`, 40, y, { align: "center", width: 515 });
+  doc.text(`Receipt link: ${process.env.FRONTEND_URL || "https://musiramuloan.netlify.app"}/receipt/${loan.loanId}`, 40, y+10, { align: "center", width: 515 });
+
+  doc.end();
+};
+
 export const addItemsToLoan = async (req, res) => {
   const { lineItems, dueDate } = req.body;
   const loan = await Loan.findById(req.params.id).populate("customer");

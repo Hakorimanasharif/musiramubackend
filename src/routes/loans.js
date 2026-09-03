@@ -1,8 +1,9 @@
 import express from "express";
-import { getLoans, createLoan, collectPayment, getLoanById, addItemsToLoan, getLoanReceipt } from "../controllers/loanController.js";
+import { getLoans, createLoan, collectPayment, getLoanById, addItemsToLoan, getLoanReceipt, getLoanReceiptPdf } from "../controllers/loanController.js";
 import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
+router.get("/receipt/:loanId/pdf", getLoanReceiptPdf);
 router.get("/receipt/:loanId", getLoanReceipt);
 router.use(protect);
 router.get("/", getLoans);

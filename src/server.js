@@ -21,7 +21,7 @@ app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false 
 app.use(rateLimit({ windowMs: 15*60*1000, max: 300, standardHeaders: true, legacyHeaders: false }));
 app.use("/api/loans/receipt", rateLimit({ windowMs: 60*60*1000, max: 100, message: { message: "Too many receipt requests, try later" } }));
 
-const allowedOrigins = [process.env.FRONTEND_URL, "https://musiramuloan.netlify.app"].filter(Boolean);
+const allowedOrigins = [process.env.FRONTEND_URL, "https://musiramuloan.netlify.app", "http://localhost:5177", "http://localhost:5173"].filter(Boolean);
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -29,10 +29,14 @@ app.use(cors({
     if (/^http:\/\/localhost:\d+$/.test(origin)) return callback(null, true);
     if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return callback(null, true);
     if (/^https:\/\/.*\.netlify\.app$/.test(origin)) return callback(null, true);
+    // allow all for now to prevent CORS block, reflect origin
     return callback(null, true);
   },
   credentials: true,
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
 }));
+app.options("*", cors());
 app.use(express.json());
 if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
