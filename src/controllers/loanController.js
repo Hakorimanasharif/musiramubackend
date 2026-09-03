@@ -57,7 +57,7 @@ export const createLoan = async (req, res) => {
   const valid = lineItems.filter(it=> it.name && it.name.trim() && Number(it.qty)>0 && Number(it.price)>0);
   if (!valid.length) return res.status(400).json({message:"No valid line items"});
   const principal = valid.reduce((a,it)=> a + Number(it.qty)*Number(it.price), 0);
-  const itemsStr = valid.map(it=> `${it.qty}x ${it.name.trim()} @${it.price}`).join(", ");
+  const itemsStr = valid.map(it=> `${it.qty}× ${it.name.trim()} — ${Number(it.price).toLocaleString()} RWF`).join(", ");
   const loanId = await generateLoanId();
   const due = new Date(dueDate);
   const status = due < new Date() ? "Overdue" : "Pending";
@@ -205,7 +205,7 @@ export const addItemsToLoan = async (req, res) => {
     added = valid.reduce((a,it)=> a + Number(it.qty)*Number(it.price), 0);
     const newLineItems = valid.map(it=>({ name: it.name.trim(), qty: Number(it.qty), price: Number(it.price) }));
     loan.lineItems.push(...newLineItems);
-    const addedStr = newLineItems.map(it=> `${it.qty}x ${it.name} @${it.price}`).join(", ");
+    const addedStr = newLineItems.map(it=> `${it.qty}× ${it.name} — ${Number(it.price).toLocaleString()} RWF`).join(", ");
     loan.items = loan.items ? `${loan.items}, ${addedStr}` : addedStr;
     loan.principal += added;
     loan.remaining += added;
