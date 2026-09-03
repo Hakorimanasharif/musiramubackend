@@ -102,7 +102,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       html: htmlBody,
     });
 
-    // Also send personalized email/SMS to customer - personalized, works with phone even if no email
+    // Also send personalized email to customer - SMS ONLY for loan-related (not customer registration) as requested
     let smsTextCustomer = null;
     if ((customerEmail || customerPhone) && ["loan","payment","overdue","add_items","customer"].includes(type)) {
       let custSubject, custText, custHtml;
@@ -227,25 +227,29 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${typeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""}`.trim().slice(0, 160);
     // Keep distinct: admin gets [ADMIN] EN, customer gets Kinyarwanda personal
 
-    // SMS recipients: shop phone + owner phone
-    let ownerPhone = null;
-    if (ownerId) {
-      const ownerForSms = await User.findById(ownerId).select("phone");
-      if (ownerForSms?.phone) ownerPhone = ownerForSms.phone;
-    }
-    const smsRecipientsShop = [...new Set([shopPhone, ownerPhone].filter(Boolean))];
-    const smsRecipientsCustomer = customerPhone ? [customerPhone] : [];
+    // SMS recipients: shop phone + owner phone - NO SMS on customer registration as requested (only loan/payment/add_items/overdue)
+    if (type === "customer") {
+      console.log(`📱 SMS skipped for customer registration as requested [${type}]`);
+    } else {
+      let ownerPhone = null;
+      if (ownerId) {
+        const ownerForSms = await User.findById(ownerId).select("phone");
+        if (ownerForSms?.phone) ownerPhone = ownerForSms.phone;
+      }
+      const smsRecipientsShop = [...new Set([shopPhone, ownerPhone].filter(Boolean))];
+      const smsRecipientsCustomer = customerPhone ? [customerPhone] : [];
 
-    console.log(`📱 SMS content [${type}] shop: "${smsTextShop}" customer: "${smsTextCustomer}" shopRecipients:${smsRecipientsShop.join(",")} customerRecipients:${smsRecipientsCustomer.join(",")}`);
-    const shopSmsRes = await sendSMS({
-      to: smsRecipientsShop,
-      message: smsTextShop,
-    });
-    console.log(`📱 Shop SMS result:`, JSON.stringify(shopSmsRes).slice(0,400));
-    if (smsRecipientsCustomer.length && ["loan","payment","overdue","add_items","customer"].includes(type)) {
-      const custRes = await sendSMS({ to: smsRecipientsCustomer, message: smsTextCustomer });
-      console.log(`📱 Customer SMS result:`, JSON.stringify(custRes).slice(0,400));
-      if (!custRes.success && !custRes.simulated) console.warn("customer SMS failed", custRes.error);
+      console.log(`📱 SMS content [${type}] shop: "${smsTextShop}" customer: "${smsTextCustomer}" shopRecipients:${smsRecipientsShop.join(",")} customerRecipients:${smsRecipientsCustomer.join(",")}`);
+      const shopSmsRes = await sendSMS({
+        to: smsRecipientsShop,
+        message: smsTextShop,
+      });
+      console.log(`📱 Shop SMS result:`, JSON.stringify(shopSmsRes).slice(0,400));
+      if (smsRecipientsCustomer.length && ["loan","payment","overdue","add_items"].includes(type)) {
+        const custRes = await sendSMS({ to: smsRecipientsCustomer, message: smsTextCustomer });
+        console.log(`📱 Customer SMS result:`, JSON.stringify(custRes).slice(0,400));
+        if (!custRes.success && !custRes.simulated) console.warn("customer SMS failed", custRes.error);
+      }
     }
 
     // Also store as log for shop owner visibility (prefix to distinguish)
