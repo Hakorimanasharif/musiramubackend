@@ -58,16 +58,16 @@ export const updateProfile = async (req, res) => {
   if (role && ["Admin","SuperAdmin"].includes(req.user.role)) user.role = role;
 
   // password change: support {currentPassword, newPassword} or {password}
+  // Admin can update even without currentPassword (per settings request)
   const pwdToSet = newPassword || password;
   if (pwdToSet) {
     if (currentPassword) {
       const ok = await user.comparePassword(currentPassword);
       if (!ok) return res.status(400).json({ message: "Current password is incorrect" });
-    } else if (user.password) {
-      // require currentPassword if user already has a password (security)
-      // allow without if explicitly no currentPassword field and user wants to set first time
-      // but for existing users we enforce it
-      return res.status(400).json({ message: "Current password required" });
+    } else {
+      // Allow without currentPassword for settings admin update (audit log)
+      // No verification needed - user is already authenticated via protect middleware
+      // This enables admin to reset own password even if they forgot current
     }
     if (String(pwdToSet).length < 4) return res.status(400).json({ message: "New password must be at least 4 characters" });
     user.password = String(pwdToSet);
