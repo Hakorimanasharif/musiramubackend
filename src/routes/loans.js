@@ -1,5 +1,5 @@
 import express from "express";
-import { getLoans, createLoan, collectPayment, getLoanById, addItemsToLoan, getLoanReceipt, getLoanReceiptPdf, getPaymentHistory, exportLoansCsv } from "../controllers/loanController.js";
+import { getLoans, createLoan, collectPayment, getLoanById, addItemsToLoan, getLoanReceipt, getLoanReceiptPdf, getPaymentHistory, getLoanHistory, exportLoansCsv } from "../controllers/loanController.js";
 import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -11,6 +11,7 @@ router.get("/", getLoans);
 router.post("/", createLoan);
 router.get("/:id", getLoanById);
 router.get("/:id/payments", getPaymentHistory);
+router.get("/:id/history", getLoanHistory);
 router.post("/:id/pay", collectPayment);
 router.put("/:id/add-items", addItemsToLoan);
 

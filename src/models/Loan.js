@@ -6,6 +6,19 @@ const lineItemSchema = new mongoose.Schema({
   price: { type: Number, required: true, min: 0 },
 }, { _id: false });
 
+const historyEntrySchema = new mongoose.Schema({
+  type: { type: String, enum: ["created", "add_items", "due_date_update"], required: true },
+  date: { type: Date, default: Date.now },
+  lineItems: { type: [lineItemSchema], default: [] },
+  addedAmount: { type: Number, default: 0 },
+  previousPrincipal: { type: Number },
+  newPrincipal: { type: Number },
+  previousDueDate: { type: Date },
+  newDueDate: { type: Date },
+  note: { type: String },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+}, { _id: true });
+
 const loanSchema = new mongoose.Schema({
   loanId: { type: String, unique: true, required: true }, // L-1001
   customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", required: true },
@@ -17,6 +30,7 @@ const loanSchema = new mongoose.Schema({
   dueDate: { type: Date, required: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   lastOverdueNotifiedAt: { type: Date },
+  history: { type: [historyEntrySchema], default: [] },
 }, { timestamps: true });
 
 loanSchema.pre("save", function(next){

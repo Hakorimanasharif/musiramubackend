@@ -59,6 +59,18 @@ export const createLoan = async (req, res) => {
   if (!custId || !dueDate || !lineItems || !lineItems.length) return res.status(400).json({message:"Customer, dueDate and lineItems required"});
   const cust = await Customer.findById(custId);
   if (!cust) return res.status(404).json({message:"Customer not found"});
+  // Enforce single active loan per customer: cannot create new loan if active exists
+  const activeLoan = await Loan.findOne({ customer: cust._id, remaining: { $gt: 0 }, status: { $in: ["Pending","Overdue"] } });
+  if (activeLoan) {
+    return res.status(400).json({
+      message: `Customer already has an active loan ${activeLoan.loanId} (${activeLoan.status}, ${activeLoan.remaining} RWF remaining). Add products to existing loan instead.`,
+      activeLoanId: activeLoan.loanId,
+      activeLoanDbId: activeLoan._id,
+      activeLoanStatus: activeLoan.status,
+      activeLoanRemaining: activeLoan.remaining,
+      code: "ACTIVE_LOAN_EXISTS"
+    });
+  }
   // calculate principal
   const valid = lineItems.filter(it=> it.name && it.name.trim() && Number(it.qty)>0 && Number(it.price)>0);
   if (!valid.length) return res.status(400).json({message:"No valid line items"});
@@ -67,16 +79,29 @@ export const createLoan = async (req, res) => {
   const loanId = await generateLoanId();
   const due = new Date(dueDate);
   const status = due < new Date() ? "Overdue" : "Pending";
+  const mappedItems = valid.map(it=>({ name: it.name.trim(), qty: Number(it.qty), price: Number(it.price) }));
   const loan = await Loan.create({
     loanId,
     customer: cust._id,
     items: itemsStr,
-    lineItems: valid.map(it=>({ name: it.name.trim(), qty: Number(it.qty), price: Number(it.price) })),
+    lineItems: mappedItems,
     principal,
     remaining: principal,
     status,
     dueDate: due,
     createdBy: req.user._id,
+    history: [{
+      type: "created",
+      date: new Date(),
+      lineItems: mappedItems,
+      addedAmount: principal,
+      previousPrincipal: 0,
+      newPrincipal: principal,
+      previousDueDate: null,
+      newDueDate: due,
+      note: `Loan created with ${mappedItems.length} items`,
+      createdBy: req.user._id,
+    }]
   });
   await Log.create({ type:"loan", customerName:`${cust.firstName} ${cust.lastName}`, amount: principal, loanId, loan: loan._id, customer: cust._id });
   notifyShopOwner({ type:"loan", customerName:`${cust.firstName} ${cust.lastName}`, amount: principal, loanId, loanDbId: loan._id, customerId: cust._id, ownerId: req.user._id, details: `Items: ${itemsStr} Due: ${due.toISOString().slice(0,10)}` });
@@ -111,6 +136,15 @@ export const getCustomerPayments = async (req, res) => {
   const { id } = req.params; // customer id
   const payments = await Payment.find({ customer: id }).sort({ createdAt: -1 }).populate("loan", "loanId");
   res.json(payments);
+};
+
+export const getLoanHistory = async (req, res) => {
+  const { id } = req.params;
+  const loan = await Loan.findById(id).populate("customer");
+  if (!loan) return res.status(404).json({message:"Loan not found"});
+  const payments = await Payment.find({ loan: id }).sort({ createdAt: -1 });
+  // combine history + payments chronologically for timeline
+  res.json({ loan, history: loan.history || [], payments });
 };
 
 export const getLoanById = async (req, res) => {
@@ -235,24 +269,58 @@ export const addItemsToLoan = async (req, res) => {
   const valid = (lineItems||[]).filter(it=> it.name && it.name.trim() && Number(it.qty)>0 && Number(it.price)>0);
   if (!valid.length && !dueDate) return res.status(400).json({message:"Provide lineItems to add or new dueDate"});
   let added = 0;
+  const previousPrincipal = loan.principal;
+  const previousDueDate = loan.dueDate;
+  let newLineItems = [];
   if(valid.length){
     added = valid.reduce((a,it)=> a + Number(it.qty)*Number(it.price), 0);
-    const newLineItems = valid.map(it=>({ name: it.name.trim(), qty: Number(it.qty), price: Number(it.price) }));
+    newLineItems = valid.map(it=>({ name: it.name.trim(), qty: Number(it.qty), price: Number(it.price) }));
     loan.lineItems.push(...newLineItems);
     const addedStr = newLineItems.map(it=> `${it.qty}× ${it.name} — ${Number(it.price).toLocaleString()} RWF`).join(", ");
     loan.items = loan.items ? `${loan.items}, ${addedStr}` : addedStr;
     loan.principal += added;
     loan.remaining += added;
   }
+  let dueDateChanged = false;
   if(dueDate){
     const newDue = new Date(dueDate);
     if(isNaN(newDue)) return res.status(400).json({message:"Invalid dueDate"});
+    if(newDue.getTime() !== new Date(loan.dueDate).getTime()) dueDateChanged = true;
     loan.dueDate = newDue;
   }
   // update status based on new dueDate and remaining
   if(loan.remaining === 0) loan.status = "Paid";
   else if(loan.dueDate < new Date()) loan.status = "Overdue";
   else loan.status = "Pending";
+  // record history entry with date
+  const historyDate = new Date();
+  if(valid.length){
+    loan.history.push({
+      type: "add_items",
+      date: historyDate,
+      lineItems: newLineItems,
+      addedAmount: added,
+      previousPrincipal,
+      newPrincipal: loan.principal,
+      previousDueDate,
+      newDueDate: loan.dueDate,
+      note: `Added ${newLineItems.length} items (+${added} RWF)`,
+      createdBy: req.user._id,
+    });
+  } else if(dueDateChanged){
+    loan.history.push({
+      type: "due_date_update",
+      date: historyDate,
+      lineItems: [],
+      addedAmount: 0,
+      previousPrincipal,
+      newPrincipal: loan.principal,
+      previousDueDate,
+      newDueDate: loan.dueDate,
+      note: `Due date changed to ${loan.dueDate.toISOString().slice(0,10)}`,
+      createdBy: req.user._id,
+    });
+  }
   await loan.save();
   if(added>0){
     await Log.create({ type:"loan", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: added, loanId: loan.loanId, loan: loan._id, customer: loan.customer._id });

@@ -50,13 +50,31 @@ router.get("/balance", async (req, res) => {
 
 // GET /api/sms/logs - delivery reports
 router.get("/logs", async (req, res) => {
-  const { page = 1, limit = 20, type, to } = req.query;
+  const { page = 1, limit = 20, type, to, unread } = req.query;
   const q = {};
   if (type) q.type = type;
   if (to) q.to = { $regex: String(to).replace(/\D/g,""), $options: "i" };
+  if (unread === "true") q.read = false;
   const total = await SmsLog.countDocuments(q);
+  const unreadCount = await SmsLog.countDocuments({ read: false });
   const logs = await SmsLog.find(q).sort({ createdAt: -1 }).skip((page-1)*limit).limit(Number(limit));
-  res.json({ logs, total, page: Number(page), pages: Math.ceil(total/limit) });
+  res.json({ logs, total, unreadCount, page: Number(page), pages: Math.ceil(total/limit) });
+});
+
+// PUT /api/sms/read-all - mark all as read
+router.put("/read-all", async (req, res) => {
+  await SmsLog.updateMany({ read: false }, { $set: { read: true, readAt: new Date() } });
+  res.json({ message: "All notifications marked as read" });
+});
+
+// PUT /api/sms/:id/read - mark single as read
+router.put("/:id/read", async (req, res) => {
+  const log = await SmsLog.findById(req.params.id);
+  if (!log) return res.status(404).json({ message: "Not found" });
+  log.read = true;
+  log.readAt = new Date();
+  await log.save();
+  res.json(log);
 });
 
 // GET /api/sms/format?phone=0788123456 - debug formatter

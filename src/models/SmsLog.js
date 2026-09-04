@@ -13,6 +13,8 @@ const smsLogSchema = new mongoose.Schema({
   type: { type: String, enum: ["loan","payment","overdue","add_items","customer","otp","reminder"], default: "loan" },
   error: { type: String },
   raw: { type: mongoose.Schema.Types.Mixed },
+  read: { type: Boolean, default: false },
+  readAt: { type: Date },
 }, { timestamps: true });
 
 smsLogSchema.index({ to: 1, createdAt: -1 });
