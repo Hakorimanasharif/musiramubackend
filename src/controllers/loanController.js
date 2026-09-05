@@ -261,6 +261,31 @@ export const exportLoansCsv = async (req, res) => {
   res.send(header + rows);
 };
 
+export const sendReminder = async (req, res) => {
+  const loan = await Loan.findById(req.params.id).populate("customer");
+  if (!loan) return res.status(404).json({ message: "Loan not found" });
+  if (loan.remaining === 0) return res.status(400).json({ message: "Loan already paid" });
+  const daysLeft = Math.ceil((new Date(loan.dueDate) - new Date()) / (1000 * 60 * 60 * 24));
+  const daysOverdue = daysLeft < 0 ? Math.ceil((Date.now() - new Date(loan.dueDate)) / (1000 * 60 * 60 * 24)) : 0;
+  const detail = loan.status === "Overdue"
+    ? `Manual 3-day reminder — Overdue ${daysOverdue} days, Remaining: ${loan.remaining} RWF. Due was ${new Date(loan.dueDate).toISOString().slice(0,10)} — Click to view/pay.`
+    : `Manual 3-day reminder — Due in ${daysLeft} day(s) on ${new Date(loan.dueDate).toISOString().slice(0,10)}, Remaining: ${loan.remaining} RWF. Tap to view/pay.`;
+  await notifyShopOwner({
+    type: "reminder",
+    customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
+    amount: loan.remaining,
+    loanId: loan.loanId,
+    loanDbId: loan._id,
+    customerId: loan.customer?._id,
+    ownerId: req.user._id,
+    details: detail,
+  });
+  loan.lastReminderAt = new Date();
+  if (loan.status === "Overdue") loan.lastOverdueNotifiedAt = new Date();
+  await loan.save();
+  res.json({ message: "Reminder sent to customer and admin", loanId: loan.loanId });
+};
+
 export const addItemsToLoan = async (req, res) => {
   const { lineItems, dueDate } = req.body;
   const loan = await Loan.findById(req.params.id).populate("customer");

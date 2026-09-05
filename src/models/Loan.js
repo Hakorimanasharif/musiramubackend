@@ -30,6 +30,7 @@ const loanSchema = new mongoose.Schema({
   dueDate: { type: Date, required: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   lastOverdueNotifiedAt: { type: Date },
+  lastReminderAt: { type: Date },
   history: { type: [historyEntrySchema], default: [] },
 }, { timestamps: true });
 

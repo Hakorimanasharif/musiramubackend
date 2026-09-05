@@ -47,19 +47,25 @@ import ShopProfile from "./models/ShopProfile.js";
 
 await connectDB();
 
-// background: auto-mark overdue + auto SMS reminder (respect notifications toggle, 24h throttle)
+// background: auto-mark overdue + 3-day reminder (SMS + email to customer AND admin)
 setInterval(async () => {
   try {
-    const res = await Loan.updateMany({ dueDate: { $lt: new Date() }, remaining: { $gt: 0 }, status: "Pending" }, { $set: { status: "Overdue" } });
+    const now = new Date();
+    const res = await Loan.updateMany({ dueDate: { $lt: now }, remaining: { $gt: 0 }, status: "Pending" }, { $set: { status: "Overdue" } });
     if (res.modifiedCount) console.log(`⏰ Overdue cron: marked ${res.modifiedCount} loans as Overdue`);
-    // auto reminder: send SMS for Overdue loans not notified in last 24h
-    const cutoff = new Date(Date.now() - 24*60*60*1000);
+
+    const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
+    const cutoff = new Date(Date.now() - THREE_DAYS);
+
+    // 1) Overdue: remind every 3 days
     const overdue = await Loan.find({ status: "Overdue", remaining: { $gt: 0 }, $or: [{ lastOverdueNotifiedAt: null }, { lastOverdueNotifiedAt: { $lt: cutoff } }] }).populate("customer").limit(20);
     for (const loan of overdue) {
       try {
         const shop = await ShopProfile.findOne();
         if (shop?.notifications && shop.notifications.smsOnOverdue === false) continue;
-        const daysOverdue = Math.ceil((Date.now() - new Date(loan.dueDate))/ (1000*60*60*24));
+        const daysOverdue = Math.ceil((Date.now() - new Date(loan.dueDate)) / (1000 * 60 * 60 * 24));
+        // only send on 3,6,9... days cadence (or first time)
+        if (loan.lastOverdueNotifiedAt && daysOverdue % 3 !== 0 && daysOverdue > 3) continue;
         await notifyShopOwner({
           type: "overdue",
           customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
@@ -68,14 +74,44 @@ setInterval(async () => {
           loanDbId: loan._id,
           customerId: loan.customer?._id || loan.customer,
           ownerId: loan.createdBy,
-          details: `Overdue ${daysOverdue} days, Remaining: ${loan.remaining} RWF`
+          details: `Reminder every 3 days — Overdue ${daysOverdue} days, Remaining: ${loan.remaining} RWF. Due was ${new Date(loan.dueDate).toISOString().slice(0,10)}`
         });
         loan.lastOverdueNotifiedAt = new Date();
+        loan.lastReminderAt = new Date();
         await loan.save();
-        console.log(`📱 Auto overdue SMS sent for ${loan.loanId} to ${loan.customer?.phone}`);
-      } catch (e) { console.warn("overdue SMS failed", loan.loanId, e.message); }
+        console.log(`📱 3-day overdue reminder sent for ${loan.loanId} to ${loan.customer?.phone}`);
+      } catch (e) { console.warn("overdue 3-day SMS failed", loan.loanId, e.message); }
     }
-  } catch (e) { console.warn("overdue cron failed", e.message); }
+
+    // 2) Upcoming due: remind 3 days before dueDate, then every 3 days until paid (Pending loans)
+    const threeDaysFromNow = new Date(Date.now() + THREE_DAYS);
+    const upcoming = await Loan.find({
+      status: "Pending",
+      remaining: { $gt: 0 },
+      dueDate: { $gte: now, $lte: threeDaysFromNow },
+      $or: [{ lastReminderAt: null }, { lastReminderAt: { $lt: cutoff } }]
+    }).populate("customer").limit(20);
+    for (const loan of upcoming) {
+      try {
+        const shop = await ShopProfile.findOne();
+        if (shop?.notifications && shop.notifications.smsOnOverdue === false) continue;
+        const daysLeft = Math.ceil((new Date(loan.dueDate) - now) / (1000 * 60 * 60 * 24));
+        await notifyShopOwner({
+          type: "reminder",
+          customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
+          amount: loan.remaining,
+          loanId: loan.loanId,
+          loanDbId: loan._id,
+          customerId: loan.customer?._id || loan.customer,
+          ownerId: loan.createdBy,
+          details: `Reminder every 3 days — Due in ${daysLeft} day(s) on ${new Date(loan.dueDate).toISOString().slice(0,10)}, Remaining: ${loan.remaining} RWF. Tap to view/pay.`
+        });
+        loan.lastReminderAt = new Date();
+        await loan.save();
+        console.log(`📱 3-day upcoming reminder sent for ${loan.loanId} to ${loan.customer?.phone}`);
+      } catch (e) { console.warn("upcoming 3-day SMS failed", loan.loanId, e.message); }
+    }
+  } catch (e) { console.warn("reminder cron failed", e.message); }
 }, 10 * 60 * 1000);
 
 app.get("/", (req,res)=> res.json({ message:"CreditLedger API running", version:"1.0.0" }));

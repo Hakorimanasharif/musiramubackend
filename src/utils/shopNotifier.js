@@ -199,6 +199,33 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         const maxPayLen = 160 - (payPrefix.length + paySuffix.length);
         // keep as is, slice will handle but we prioritize link
         smsTextCustomer = (payPrefix + paySuffix).slice(0, 160);
+      } else if (type === "reminder") {
+        const rwLabel = "Kwibutsa kwishyura";
+        custSubject = `[${shopName}] ${rwLabel}: ${loanId} ${amountStr}`;
+        custText = `Muraho ${customerFullName},\n\n${rwLabel} — ${details || ""}\nUmwenda: ${loanId} Amafaranga: ${amountStr}\n${receiptPdfLink ? `Manura PDF: ${receiptPdfLink}\n` : ""}${receiptLink ? `Reba kuri web: ${receiptLink}\n` : ""}Kanda hano urebe igihe cyo kwishyura: ${receiptLink}\n\nIduka: ${shopName} • ${shopPhone}\nIgihe: ${new Date().toLocaleString()}`;
+        custHtml = `
+        <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #f59e0b;border-radius:12px;overflow:hidden">
+          <div style="background:linear-gradient(135deg,#f59e0b,#f97316);padding:20px;color:white">
+            <h2 style="margin:0;font-size:18px">Muraho ${customerFullName} — ⏰ ${rwLabel}</h2>
+            <p style="margin:4px 0 0 0;opacity:0.9;font-size:12px">${new Date().toLocaleString()}</p>
+          </div>
+          <div style="padding:20px;background:#fff">
+            <p style="background:#fffbeb;border:1px solid #fcd34d;padding:12px;border-radius:8px;color:#92400e;font-size:13px">${details || ""}</p>
+            ${loanId ? `<p><strong>Umwenda:</strong> <span style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:6px">${loanId}</span></p>` : ""}
+            ${amountStr ? `<p><strong>Asigaye:</strong> <span style="color:#d97706;font-weight:700">${amountStr}</span> — Kanda urebe igihe cyo kwishyura</p>` : ""}
+            ${receiptLink ? `<a href="${receiptLink}" style="display:block;margin-top:16px;background:#0f172a;color:white;text-align:center;padding:14px;border-radius:12px;text-decoration:none;font-weight:700;font-size:14px">👉 Kanda hano urebe igihe cyo kwishyura</a>` : ""}
+            ${receiptPdfLink ? `<a href="${receiptPdfLink}" style="display:block;margin-top:10px;background:white;color:#0f172a;text-align:center;padding:12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:13px;border:1px solid #e2e8f0">📄 Manura PDF</a>` : ""}
+            <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
+            <p style="font-size:12px;color:#64748b">Iduka: ${shopName} • ${shopPhone} • ${shopEmail} • Ubutumwa bwo kwibutsa buri minsi 3</p>
+          </div>
+        </div>
+      `;
+        if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
+        // clickable SMS with due date and link, 160 limit
+        const reminderLink = receiptLink || receiptPdfLink || "";
+        const baseRemind = `Muraho ${customerFullName}, ${details ? details.split("—")[0].trim() : rwLabel} ${loanId} ${amountStr}. `.slice(0,80);
+        const suffixRemind = reminderLink ? `Kanda: ${reminderLink}` : "";
+        smsTextCustomer = (baseRemind + suffixRemind).slice(0,160);
       } else {
         const rwLabel = { overdue: "Umwenda warengeje igihe", add_items: "Ibintu byongewe ku mwenda" }[type] || typeLabel;
         custSubject = `[${shopName}] ${rwLabel}: ${loanId ? loanId : ""} ${amountStr}`.trim();
@@ -246,18 +273,20 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       const shopSmsRes = await sendSMS({
         to: smsRecipientsShop,
         message: smsTextShop,
+        type, loan: loanDbId, customer: customerId,
       });
       console.log(`📱 Shop SMS result:`, JSON.stringify(shopSmsRes).slice(0,400));
-      if (smsRecipientsCustomer.length && ["loan","payment","overdue","add_items"].includes(type)) {
-        const custRes = await sendSMS({ to: smsRecipientsCustomer, message: smsTextCustomer });
+      if (smsRecipientsCustomer.length && ["loan","payment","overdue","add_items","reminder"].includes(type)) {
+        const custRes = await sendSMS({ to: smsRecipientsCustomer, message: smsTextCustomer, type, loan: loanDbId, customer: customerId });
         console.log(`📱 Customer SMS result:`, JSON.stringify(custRes).slice(0,400));
         if (!custRes.success && !custRes.simulated) console.warn("customer SMS failed", custRes.error);
       }
     }
 
-    // Also store as log for shop owner visibility (prefix to distinguish)
+    // Also store as log for shop owner visibility (prefix to distinguish) — map reminder/overdue to valid Log types
+    const logType = ["loan","payment","customer"].includes(type) ? type : (type === "reminder" || type === "overdue" ? "loan" : "loan");
     await Log.create({
-      type: type === "add_items" ? "loan" : type,
+      type: logType,
       customerName: `[SHOP] ${customerName} - ${typeLabel}`,
       amount,
       loanId,
