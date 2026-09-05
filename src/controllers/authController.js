@@ -5,7 +5,9 @@ import { sendOTP } from "../utils/sms.js";
 import crypto from "crypto";
 
 export const register = async (req, res) => {
-  const { name, email, phone, password } = req.body;
+  const { name, email, phone, password, code } = req.body;
+  const REQUIRED_CODE = process.env.SIGNUP_CODE || "001002";
+  if (code !== REQUIRED_CODE) return res.status(403).json({ message: "Invalid signup code" });
   if (!name || !email || !password) return res.status(400).json({ message: "Name, email and password required" });
   const exists = await User.findOne({ email });
   if (exists) return res.status(400).json({ message: "User already exists" });
