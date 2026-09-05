@@ -80,7 +80,7 @@ export const getCustomerStatementPdf = async (req, res) => {
   const Payment = (await import("../models/Payment.js")).default;
   const payments = await Payment.find({ customer: customer._id }).sort({ createdAt: 1 });
   const ShopProfile = (await import("../models/ShopProfile.js")).default;
-  const shop = await ShopProfile.findOne() || { shopName: "MusiRamu General Shop", email: "info@musiramu.rw", phone: "+250 788 123 456", currency: "RWF" };
+  const shop = await ShopProfile.findOne() || { shopName: "IHAHIRO NYARYO(musiramu)", email: "hakorimanasharif12@gmail.com", phone: "0788609341", currency: "RWF" };
   const PDFDocument = (await import("pdfkit")).default;
   const doc = new PDFDocument({ size: "A4", margin: 40 });
   res.setHeader("Content-Type", "application/pdf");

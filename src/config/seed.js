@@ -39,7 +39,7 @@ const seed = async () => {
   await Log.deleteMany();
   await ShopProfile.deleteMany();
 
-  const admin = await User.create({ name: "Admin Doe", email: "admin@musiramu.rw", phone: "0788123456", password: "123456", role: "Shop Owner" });
+  const admin = await User.create({ name: "Admin Doe", email: "hakorimanasharif12@gmail.com", phone: "0788609341", password: "123456", role: "Shop Owner" });
   // also allow admin123
   await User.create({ name: "Admin", email: "admin2@musiramu.rw", phone: "0788000000", password: "123456", role: "Shop Owner" });
 
@@ -63,7 +63,7 @@ const seed = async () => {
     });
     await Log.create({ type: ld.status==="Paid"?"payment":"loan", customerName:`${cust.firstName} ${cust.lastName}`, amount: ld.principal, loanId, customer: cust._id });
   }
-  await ShopProfile.create({ owner: admin._id, shopName:"MusiRamu General Shop", currency:"RWF", phone:"+250 788 123 456", email:"info@musiramu.rw" });
+  await ShopProfile.create({ owner: admin._id, shopName:"IHAHIRO NYARYO(musiramu)", currency:"RWF", phone:"0788609341", email:"hakorimanasharif12@gmail.com" });
   console.log("Seed done. Admin: admin@musiramu.rw / 123456  or 0788123456 / 123456");
   process.exit(0);
 };

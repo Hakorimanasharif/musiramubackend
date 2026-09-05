@@ -71,9 +71,9 @@ export const sendEmail = async ({ to, subject, text, html }) => {
     console.warn("⚠️  sendEmail called without recipient");
     return { simulated: true, error: "no recipient" };
   }
-  const from = process.env.EMAIL_FROM || process.env.SMTP_USER || "noreply@musiramu.rw";
+  const from = process.env.EMAIL_FROM || process.env.SMTP_USER || "hakorimanasharif12@gmail.com";
   const recipients = Array.isArray(to) ? to.join(", ") : to;
-  const shopName = process.env.SHOP_NAME || "MusiRamu General Shop";
+  const shopName = process.env.SHOP_NAME || "IHAHIRO NYARYO(musiramu)";
 
   // Always log for debugging
   console.log(`\n📧 [EMAIL] To: ${recipients}\nSubject: ${subject}\nBody: ${text?.slice(0, 400)}...\n`);
@@ -111,7 +111,7 @@ export const getEmailStatus = async () => {
     configured: hasSmtp || !!t,
     simulated: !hasSmtp && !t,
     host: process.env.SMTP_HOST || "ethereal/console",
-    from: process.env.EMAIL_FROM || process.env.SMTP_USER || "noreply@musiramu.rw",
+    from: process.env.EMAIL_FROM || process.env.SMTP_USER || "hakorimanasharif12@gmail.com",
     verified: transporterVerified,
   };
 };

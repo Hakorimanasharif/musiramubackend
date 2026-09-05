@@ -167,14 +167,15 @@ export const getLoanReceiptPdf = async (req, res) => {
   const loan = await Loan.findOne({ loanId }).populate("customer");
   if (!loan) return res.status(404).json({message:"Receipt not found"});
   const ShopProfile = (await import("../models/ShopProfile.js")).default;
-  const shop = await ShopProfile.findOne() || { shopName: "MusiRamu General Shop", email: "info@musiramu.rw", phone: "+250 788 123 456", currency: "RWF" };
+  const shop = await ShopProfile.findOne() || { shopName: "IHAHIRO NYARYO(musiramu)", email: "hakorimanasharif12@gmail.com", phone: "0788609341", currency: "RWF" };
   const formatCurrency = (n) => new Intl.NumberFormat("en-RW").format(n) + " " + (shop.currency || "RWF");
 
   const PDFDocument = (await import("pdfkit")).default;
   const doc = new PDFDocument({ size: "A4", margin: 40 });
 
+  const disType = req.query.download === "1" ? "attachment" : "inline";
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="Receipt-${loan.loanId}.pdf"`);
+  res.setHeader("Content-Disposition", `${disType}; filename="Receipt-${loan.loanId}.pdf"`);
   res.setHeader("Access-Control-Allow-Origin", "*");
   doc.pipe(res);
 

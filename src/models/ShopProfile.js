@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
 
 const shopProfileSchema = new mongoose.Schema({
-  shopName: { type: String, default: "MusiRamu General Shop" },
+  shopName: { type: String, default: "IHAHIRO NYARYO(musiramu)" },
   currency: { type: String, default: "RWF" },
-  phone: { type: String, default: "+250 788 123 456" },
-  email: { type: String, default: "info@musiramu.rw" },
+  phone: { type: String, default: "0788609341" },
+  email: { type: String, default: "hakorimanasharif12@gmail.com" },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", unique: true },
   notifications: {
     smsOnLoan: { type: Boolean, default: true },
