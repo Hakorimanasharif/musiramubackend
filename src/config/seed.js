@@ -63,7 +63,7 @@ const seed = async () => {
     });
     await Log.create({ type: ld.status==="Paid"?"payment":"loan", customerName:`${cust.firstName} ${cust.lastName}`, amount: ld.principal, loanId, customer: cust._id });
   }
-  await ShopProfile.create({ owner: admin._id, shopName:"IHAHIRO NYARYO(musiramu)", currency:"RWF", phone:"0788609341", email:"hakorimanasharif12@gmail.com" });
+  await ShopProfile.create({ owner: admin._id, shopName:"IHAHIRONYARYO LTD", currency:"RWF", phone:"0788609341", email:"hakorimanasharif12@gmail.com" });
   console.log("Seed done. Admin: admin@musiramu.rw / 123456  or 0788123456 / 123456");
   process.exit(0);
 };

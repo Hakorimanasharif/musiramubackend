@@ -167,7 +167,7 @@ export const getLoanReceiptPdf = async (req, res) => {
   const loan = await Loan.findOne({ loanId }).populate("customer");
   if (!loan) return res.status(404).json({message:"Receipt not found"});
   const ShopProfile = (await import("../models/ShopProfile.js")).default;
-  const shop = await ShopProfile.findOne() || { shopName: "IHAHIRO NYARYO(musiramu)", email: "hakorimanasharif12@gmail.com", phone: "0788609341", currency: "RWF" };
+  const shop = await ShopProfile.findOne() || { shopName: "IHAHIRONYARYO LTD", email: "hakorimanasharif12@gmail.com", phone: "0788609341", currency: "RWF" };
   const formatCurrency = (n) => new Intl.NumberFormat("en-RW").format(n) + " " + (shop.currency || "RWF");
 
   const PDFDocument = (await import("pdfkit")).default;
@@ -186,7 +186,8 @@ export const getLoanReceiptPdf = async (req, res) => {
   doc.fontSize(10).text(`Receipt: ${loan.loanId}`, 400, 30, { align: "right" });
   doc.fontSize(8).text(`Date: ${new Date(loan.createdAt).toISOString().slice(0,10)}  Due: ${new Date(loan.dueDate).toISOString().slice(0,10)}`, 400, 45, { align: "right" });
   const statusColor = loan.status === "Paid" ? "#10b981" : loan.status === "Overdue" ? "#ef4444" : "#f59e0b";
-  doc.fillColor(statusColor).fontSize(9).font("Helvetica-Bold").text(loan.status.toUpperCase(), 400, 62, { align: "right" });
+  const statusText = loan.status === "Overdue" ? "BYARENZE IGIHE" : loan.status === "Paid" ? "BYISHYUWE" : "PENDING";
+  doc.fillColor(statusColor).fontSize(9).font("Helvetica-Bold").text(statusText, 400, 62, { align: "right" });
 
   doc.fillColor("black");
   let y = 110;

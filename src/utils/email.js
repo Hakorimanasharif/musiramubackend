@@ -73,7 +73,7 @@ export const sendEmail = async ({ to, subject, text, html }) => {
   }
   const from = process.env.EMAIL_FROM || process.env.SMTP_USER || "hakorimanasharif12@gmail.com";
   const recipients = Array.isArray(to) ? to.join(", ") : to;
-  const shopName = process.env.SHOP_NAME || "IHAHIRO NYARYO(musiramu)";
+  const shopName = process.env.SHOP_NAME || "IHAHIRONYARYO LTD";
 
   // Always log for debugging
   console.log(`\n📧 [EMAIL] To: ${recipients}\nSubject: ${subject}\nBody: ${text?.slice(0, 400)}...\n`);

@@ -12,7 +12,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     if (!shop) shop = await ShopProfile.findOne();
     const shopEmail = shop?.email || "hakorimanasharif12@gmail.com";
     const shopPhone = shop?.phone || "0788609341";
-    const shopName = shop?.shopName || "IHAHIRO NYARYO(musiramu)";
+    const shopName = shop?.shopName || "IHAHIRONYARYO LTD";
 
     // Also fetch owner user email directly
     let ownerEmail = null;
