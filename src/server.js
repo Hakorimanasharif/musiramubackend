@@ -13,6 +13,7 @@ import statsRoutes from "./routes/stats.js";
 import shopRoutes from "./routes/shop.js";
 import smsRoutes from "./routes/sms.js";
 import emailRoutes from "./routes/email.js";
+import cronRoutes from "./routes/cron.js";
 
 dotenv.config();
 const app = express();
@@ -41,104 +42,36 @@ app.use(express.json());
 if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
 import mongoose from "mongoose";
-import Loan from "./models/Loan.js";
-import { notifyShopOwner } from "./utils/shopNotifier.js";
-import ShopProfile from "./models/ShopProfile.js";
+import cron from "node-cron";
+import { runReminderJob } from "./jobs/reminders.js";
 
 await connectDB();
 
 // background: auto-mark overdue + daily reminder (SMS + email to customer AND admin)
-setInterval(async () => {
+// - runs immediately on startup (so Render restarts don't wait 10 min)
+// - every 10 min (retry failed sends; 24h cutoff per loan)
+// - daily at 08:00 Africa/Kigali (fixed "every day" time, not just 24h-after-last-send)
+let reminderRunning = false;
+const runRemindersSafe = async (reason) => {
+  if (reminderRunning) {
+    console.log(`⏭️ Reminder job already running, skipping (${reason})`);
+    return null;
+  }
+  reminderRunning = true;
   try {
-    const now = new Date();
-    const res = await Loan.updateMany({ dueDate: { $lt: now }, remaining: { $gt: 0 }, status: "Pending" }, { $set: { status: "Overdue" } });
-    if (res.modifiedCount) console.log(`⏰ Overdue cron: marked ${res.modifiedCount} loans as Overdue`);
+    console.log(`⏰ Reminder job starting (${reason})...`);
+    return await runReminderJob();
+  } catch (e) {
+    console.warn("reminder cron failed", e.message);
+    return { error: e.message };
+  } finally {
+    reminderRunning = false;
+  }
+};
 
-    const ONE_DAY = 24 * 60 * 60 * 1000;
-    const cutoff = new Date(Date.now() - ONE_DAY);
-
-    // 1) Overdue: remind EVERY DAY
-    const overdue = await Loan.find({ status: "Overdue", remaining: { $gt: 0 }, $or: [{ lastOverdueNotifiedAt: null }, { lastOverdueNotifiedAt: { $lt: cutoff } }] }).populate("customer").limit(20);
-    for (const loan of overdue) {
-      try {
-        const shop = await ShopProfile.findOne();
-        if (shop?.notifications && shop.notifications.smsOnOverdue === false) continue;
-        const daysOverdue = Math.ceil((Date.now() - new Date(loan.dueDate)) / (1000 * 60 * 60 * 24));
-        await notifyShopOwner({
-          type: "overdue",
-          customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
-          amount: loan.remaining,
-          loanId: loan.loanId,
-          loanDbId: loan._id,
-          customerId: loan.customer?._id || loan.customer,
-          ownerId: loan.createdBy,
-          details: `Daily reminder — Overdue ${daysOverdue} day(s), Remaining: ${loan.remaining} RWF. Due was ${new Date(loan.dueDate).toISOString().slice(0,10)}`
-        });
-        loan.lastOverdueNotifiedAt = new Date();
-        loan.lastReminderAt = new Date();
-        await loan.save();
-        console.log(`📱 Daily overdue reminder sent for ${loan.loanId} to ${loan.customer?.phone}`);
-      } catch (e) { console.warn("daily overdue SMS failed", loan.loanId, e.message); }
-    }
-
-    // 2) Upcoming due: remind 3 days before dueDate (Pending loans)
-    const threeDaysFromNow = new Date(Date.now() + 3 * ONE_DAY);
-    const upcoming = await Loan.find({
-      status: "Pending",
-      remaining: { $gt: 0 },
-      dueDate: { $gte: now, $lte: threeDaysFromNow },
-      $or: [{ lastReminderAt: null }, { lastReminderAt: { $lt: cutoff } }]
-    }).populate("customer").limit(20);
-    for (const loan of upcoming) {
-      try {
-        const shop = await ShopProfile.findOne();
-        if (shop?.notifications && shop.notifications.smsOnOverdue === false) continue;
-        const daysLeft = Math.ceil((new Date(loan.dueDate) - now) / (1000 * 60 * 60 * 24));
-        await notifyShopOwner({
-          type: "reminder",
-          customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
-          amount: loan.remaining,
-          loanId: loan.loanId,
-          loanDbId: loan._id,
-          customerId: loan.customer?._id || loan.customer,
-          ownerId: loan.createdBy,
-          details: `Daily reminder — Due in ${daysLeft} day(s) on ${new Date(loan.dueDate).toISOString().slice(0,10)}, Remaining: ${loan.remaining} RWF.`
-        });
-        loan.lastReminderAt = new Date();
-        await loan.save();
-        console.log(`📱 Daily upcoming reminder sent for ${loan.loanId} to ${loan.customer?.phone}`);
-      } catch (e) { console.warn("daily upcoming SMS failed", loan.loanId, e.message); }
-    }
-
-    // 3) Ntabwiko loans (dueDateUnknown=true): send daily reminders from Day 1 even before overdue
-    const ntabwiko = await Loan.find({
-      dueDateUnknown: true,
-      status: "Pending",
-      remaining: { $gt: 0 },
-      $or: [{ lastReminderAt: null }, { lastReminderAt: { $lt: cutoff } }]
-    }).populate("customer").limit(20);
-    for (const loan of ntabwiko) {
-      try {
-        const shop = await ShopProfile.findOne();
-        if (shop?.notifications && shop.notifications.smsOnOverdue === false) continue;
-        const daysSinceCreated = Math.ceil((Date.now() - new Date(loan.createdAt)) / (1000 * 60 * 60 * 24));
-        await notifyShopOwner({
-          type: "reminder",
-          customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
-          amount: loan.remaining,
-          loanId: loan.loanId,
-          loanDbId: loan._id,
-          customerId: loan.customer?._id || loan.customer,
-          ownerId: loan.createdBy,
-          details: `Ntabwiko daily reminder — Day ${daysSinceCreated} since loan created, Remaining: ${loan.remaining} RWF.`
-        });
-        loan.lastReminderAt = new Date();
-        await loan.save();
-        console.log(`📱 Ntabwiko daily reminder sent for ${loan.loanId} (Day ${daysSinceCreated}) to ${loan.customer?.phone}`);
-      } catch (e) { console.warn("ntabwiko daily SMS failed", loan.loanId, e.message); }
-    }
-  } catch (e) { console.warn("reminder cron failed", e.message); }
-}, 10 * 60 * 1000);
+runRemindersSafe("startup");
+setInterval(() => runRemindersSafe("10min-interval"), 10 * 60 * 1000);
+cron.schedule("0 8 * * *", () => runRemindersSafe("daily-8am-kigali"), { timezone: "Africa/Kigali" });
 
 app.get("/", (req,res)=> res.json({ message:"CreditLedger API running", version:"1.0.0" }));
 app.get("/api/health", (req,res)=> {
@@ -154,6 +87,7 @@ app.use("/api/stats", statsRoutes);
 app.use("/api/shop", shopRoutes);
 app.use("/api/sms", smsRoutes);
 app.use("/api/email", emailRoutes);
+app.use("/api/cron", cronRoutes);
 
 // 404 for unknown api routes
 app.use((req,res)=> res.status(404).json({ message: "Not found" }));

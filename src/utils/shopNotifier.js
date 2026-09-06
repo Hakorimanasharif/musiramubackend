@@ -266,6 +266,8 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     // Keep distinct: admin gets [ADMIN] EN, customer gets Kinyarwanda personal
 
     // SMS recipients: shop phone + owner phone - NO SMS on customer registration as requested (only loan/payment/add_items/overdue)
+    let shopSmsRes = null;
+    let custRes = null;
     if (type === "customer") {
       console.log(`📱 SMS skipped for customer registration as requested [${type}]`);
     } else {
@@ -278,17 +280,19 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       const smsRecipientsCustomer = customerPhone ? [customerPhone] : [];
 
       console.log(`📱 SMS content [${type}] shop: "${smsTextShop}" customer: "${smsTextCustomer}" shopRecipients:${smsRecipientsShop.join(",")} customerRecipients:${smsRecipientsCustomer.join(",")}`);
-      const shopSmsRes = await sendSMS({
+      shopSmsRes = await sendSMS({
         to: smsRecipientsShop,
         message: smsTextShop,
         type, loan: loanDbId, customer: customerId,
       });
       console.log(`📱 Shop SMS result:`, JSON.stringify(shopSmsRes).slice(0,400));
-      if (smsRecipientsCustomer.length && ["loan","payment","overdue","add_items","reminder"].includes(type)) {
-        const custRes = await sendSMS({ to: smsRecipientsCustomer, message: smsTextCustomer, type, loan: loanDbId, customer: customerId });
+      const needsCustomerSms = smsRecipientsCustomer.length && ["loan","payment","overdue","add_items","reminder"].includes(type);
+      if (needsCustomerSms) {
+        custRes = await sendSMS({ to: smsRecipientsCustomer, message: smsTextCustomer, type, loan: loanDbId, customer: customerId });
         console.log(`📱 Customer SMS result:`, JSON.stringify(custRes).slice(0,400));
         if (!custRes.success && !custRes.simulated) console.warn("customer SMS failed", custRes.error);
       }
+      if (!shopSmsRes.success && !shopSmsRes.simulated) console.warn("shop SMS failed", shopSmsRes.error);
     }
 
     // Also store as log for shop owner visibility (prefix to distinguish) — map reminder/overdue to valid Log types
@@ -302,7 +306,13 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       customer: customerId,
     });
 
-    return { shopEmail: recipientsShop.join(", "), shopPhone, subject, body: textBody };
+    // Success = every required SMS actually sent (or simulated when no provider key).
+    // Callers MUST use this to decide whether to update lastOverdueNotifiedAt/lastReminderAt,
+    // otherwise a failed send would be marked as sent and skipped for 24h.
+    const shopOk = type === "customer" ? true : (shopSmsRes && (shopSmsRes.success || shopSmsRes.simulated));
+    const custOk = type === "customer" ? true : (!custRes ? true : (custRes.success || custRes.simulated));
+    const smsSuccess = !!(shopOk && custOk);
+    return { shopEmail: recipientsShop.join(", "), shopPhone, subject, body: textBody, smsSuccess, simulated: !!(shopSmsRes?.simulated || custRes?.simulated), shopSmsRes, custRes };
   } catch (e) {
     console.error("Shop notify error:", e.message);
   }
