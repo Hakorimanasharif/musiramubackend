@@ -28,6 +28,7 @@ const loanSchema = new mongoose.Schema({
   remaining: { type: Number, required: true, min: 0 },
   status: { type: String, enum: ["Pending","Overdue","Paid"], default: "Pending" },
   dueDate: { type: Date, required: true },
+  dueDateUnknown: { type: Boolean, default: false },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   lastOverdueNotifiedAt: { type: Date },
   lastReminderAt: { type: Date },

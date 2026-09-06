@@ -47,25 +47,23 @@ import ShopProfile from "./models/ShopProfile.js";
 
 await connectDB();
 
-// background: auto-mark overdue + 3-day reminder (SMS + email to customer AND admin)
+// background: auto-mark overdue + daily reminder (SMS + email to customer AND admin)
 setInterval(async () => {
   try {
     const now = new Date();
     const res = await Loan.updateMany({ dueDate: { $lt: now }, remaining: { $gt: 0 }, status: "Pending" }, { $set: { status: "Overdue" } });
     if (res.modifiedCount) console.log(`⏰ Overdue cron: marked ${res.modifiedCount} loans as Overdue`);
 
-    const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
-    const cutoff = new Date(Date.now() - THREE_DAYS);
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    const cutoff = new Date(Date.now() - ONE_DAY);
 
-    // 1) Overdue: remind every 3 days
+    // 1) Overdue: remind EVERY DAY
     const overdue = await Loan.find({ status: "Overdue", remaining: { $gt: 0 }, $or: [{ lastOverdueNotifiedAt: null }, { lastOverdueNotifiedAt: { $lt: cutoff } }] }).populate("customer").limit(20);
     for (const loan of overdue) {
       try {
         const shop = await ShopProfile.findOne();
         if (shop?.notifications && shop.notifications.smsOnOverdue === false) continue;
         const daysOverdue = Math.ceil((Date.now() - new Date(loan.dueDate)) / (1000 * 60 * 60 * 24));
-        // only send on 3,6,9... days cadence (or first time)
-        if (loan.lastOverdueNotifiedAt && daysOverdue % 3 !== 0 && daysOverdue > 3) continue;
         await notifyShopOwner({
           type: "overdue",
           customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
@@ -74,17 +72,17 @@ setInterval(async () => {
           loanDbId: loan._id,
           customerId: loan.customer?._id || loan.customer,
           ownerId: loan.createdBy,
-          details: `Reminder every 3 days — Overdue ${daysOverdue} days, Remaining: ${loan.remaining} RWF. Due was ${new Date(loan.dueDate).toISOString().slice(0,10)}`
+          details: `Daily reminder — Overdue ${daysOverdue} day(s), Remaining: ${loan.remaining} RWF. Due was ${new Date(loan.dueDate).toISOString().slice(0,10)}`
         });
         loan.lastOverdueNotifiedAt = new Date();
         loan.lastReminderAt = new Date();
         await loan.save();
-        console.log(`📱 3-day overdue reminder sent for ${loan.loanId} to ${loan.customer?.phone}`);
-      } catch (e) { console.warn("overdue 3-day SMS failed", loan.loanId, e.message); }
+        console.log(`📱 Daily overdue reminder sent for ${loan.loanId} to ${loan.customer?.phone}`);
+      } catch (e) { console.warn("daily overdue SMS failed", loan.loanId, e.message); }
     }
 
-    // 2) Upcoming due: remind 3 days before dueDate, then every 3 days until paid (Pending loans)
-    const threeDaysFromNow = new Date(Date.now() + THREE_DAYS);
+    // 2) Upcoming due: remind 3 days before dueDate (Pending loans)
+    const threeDaysFromNow = new Date(Date.now() + 3 * ONE_DAY);
     const upcoming = await Loan.find({
       status: "Pending",
       remaining: { $gt: 0 },
@@ -104,12 +102,40 @@ setInterval(async () => {
           loanDbId: loan._id,
           customerId: loan.customer?._id || loan.customer,
           ownerId: loan.createdBy,
-          details: `Reminder every 3 days — Due in ${daysLeft} day(s) on ${new Date(loan.dueDate).toISOString().slice(0,10)}, Remaining: ${loan.remaining} RWF. Tap to view/pay.`
+          details: `Daily reminder — Due in ${daysLeft} day(s) on ${new Date(loan.dueDate).toISOString().slice(0,10)}, Remaining: ${loan.remaining} RWF.`
         });
         loan.lastReminderAt = new Date();
         await loan.save();
-        console.log(`📱 3-day upcoming reminder sent for ${loan.loanId} to ${loan.customer?.phone}`);
-      } catch (e) { console.warn("upcoming 3-day SMS failed", loan.loanId, e.message); }
+        console.log(`📱 Daily upcoming reminder sent for ${loan.loanId} to ${loan.customer?.phone}`);
+      } catch (e) { console.warn("daily upcoming SMS failed", loan.loanId, e.message); }
+    }
+
+    // 3) Ntabwiko loans (dueDateUnknown=true): send daily reminders from Day 1 even before overdue
+    const ntabwiko = await Loan.find({
+      dueDateUnknown: true,
+      status: "Pending",
+      remaining: { $gt: 0 },
+      $or: [{ lastReminderAt: null }, { lastReminderAt: { $lt: cutoff } }]
+    }).populate("customer").limit(20);
+    for (const loan of ntabwiko) {
+      try {
+        const shop = await ShopProfile.findOne();
+        if (shop?.notifications && shop.notifications.smsOnOverdue === false) continue;
+        const daysSinceCreated = Math.ceil((Date.now() - new Date(loan.createdAt)) / (1000 * 60 * 60 * 24));
+        await notifyShopOwner({
+          type: "reminder",
+          customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
+          amount: loan.remaining,
+          loanId: loan.loanId,
+          loanDbId: loan._id,
+          customerId: loan.customer?._id || loan.customer,
+          ownerId: loan.createdBy,
+          details: `Ntabwiko daily reminder — Day ${daysSinceCreated} since loan created, Remaining: ${loan.remaining} RWF.`
+        });
+        loan.lastReminderAt = new Date();
+        await loan.save();
+        console.log(`📱 Ntabwiko daily reminder sent for ${loan.loanId} (Day ${daysSinceCreated}) to ${loan.customer?.phone}`);
+      } catch (e) { console.warn("ntabwiko daily SMS failed", loan.loanId, e.message); }
     }
   } catch (e) { console.warn("reminder cron failed", e.message); }
 }, 10 * 60 * 1000);
