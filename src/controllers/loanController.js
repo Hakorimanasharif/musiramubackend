@@ -162,6 +162,53 @@ export const getLoanReceipt = async (req, res) => {
   res.json({ loan, shop, customer: loan.customer });
 };
 
+// PUBLIC standalone HTML receipt — no login, no app needed.
+// Open on any phone via the SMS link, shows all products taken.
+export const getLoanReceiptHtml = async (req, res) => {
+  const { loanId } = req.params;
+  const loan = await Loan.findOne({ loanId }).populate("customer");
+  if (!loan) return res.status(404).send("<h1>Receipt not found</h1>");
+  const ShopProfile = (await import("../models/ShopProfile.js")).default;
+  const shop = (await ShopProfile.findOne()?.lean?.()) || await ShopProfile.findOne() || {};
+  const shopName = shop.shopName || "IHAHIRONYARYO LTD";
+  const shopPhone = shop.phone || "0788609341";
+  const shopEmail = shop.email || "hakorimanasharif12@gmail.com";
+  const currency = shop.currency || "RWF";
+  const fmt = (n) => new Intl.NumberFormat("en-RW").format(Number(n) || 0) + " " + currency;
+  const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const cust = loan.customer || {};
+  const custName = `${cust.firstName || ""} ${cust.lastName || ""}`.trim() || "Customer";
+  const due = loan.dueDate ? new Date(loan.dueDate).toISOString().slice(0, 10) : "-";
+  const created = loan.createdAt ? new Date(loan.createdAt).toISOString().slice(0, 10) : "-";
+  const paid = (loan.principal || 0) - (loan.remaining || 0);
+  const pct = loan.principal ? Math.round((paid / loan.principal) * 100) : 0;
+  const statusColor = loan.status === "Paid" ? "#059669" : loan.status === "Overdue" ? "#dc2626" : "#d97706";
+  const statusRw = loan.status === "Paid" ? "BYISHYUWE ✓" : loan.status === "Overdue" ? "BYARENZE IGIHE" : "BITEGEJE";
+  const rows = (loan.lineItems || []).map((it, i) => `
+      <tr><td>${i + 1}</td><td>${esc(it.name)}</td><td style="text-align:center">${it.qty}</td><td style="text-align:right">${fmt(it.price)}</td><td style="text-align:right;font-weight:700">${fmt(Number(it.qty) * Number(it.price))}</td></tr>`).join("");
+  const frontendBase = process.env.FRONTEND_URL || (process.env.NODE_ENV === "production" ? "https://musiramuloan.netlify.app" : "http://localhost:5177");
+  const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
+  const backendBase = process.env.BACKEND_URL || process.env.API_URL || `${proto}://${req.get("host")}`;
+  const pdfLink = `${backendBase}/api/loans/receipt/${loan.loanId}/pdf`;
+  const appLink = `${frontendBase}/receipt/${loan.loanId}`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.send(`<!DOCTYPE html><html lang="rw"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Inyemezabwishyu ${esc(loan.loanId)} — ${esc(shopName)}</title>
+<style>*{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f1f5f9;margin:0;padding:16px;color:#0f172a}.card{max-width:640px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden}.head{background:#0f172a;color:#fff;padding:22px;text-align:center}.head h1{margin:0;font-size:18px}.head p{margin:6px 0 0;font-size:12px;opacity:.75}.badge{display:inline-block;margin-top:10px;background:${statusColor};color:#fff;font-weight:800;font-size:12px;padding:6px 14px;border-radius:999px}.body{padding:20px}.row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:14px}.row span:first-child{color:#64748b}table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}th{background:#f8fafc;color:#475569;text-align:left;padding:8px;border-bottom:2px solid #e2e8f0}td{padding:8px;border-bottom:1px solid #f1f5f9}.totals{margin-top:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;font-size:14px}.bar{height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden;margin-top:8px}.bar div{height:100%;background:${statusColor};width:${pct}%}.btns{display:flex;flex-direction:column;gap:10px;margin-top:16px}.btn{display:block;text-align:center;padding:13px;border-radius:12px;font-weight:700;font-size:14px;text-decoration:none}.btn-dark{background:#0f172a;color:#fff}.btn-green{background:#059669;color:#fff}.btn-line{background:#fff;color:#0f172a;border:1px solid #e2e8f0}.foot{text-align:center;font-size:11px;color:#64748b;padding:14px}@media print{.btns{display:none}body{background:#fff;padding:0}.card{border:none}}</style></head><body>
+<div class="card"><div class="head"><h1>${esc(shopName)}</h1><p>Inyemezabwishyu • Receipt ${esc(loan.loanId)}</p><span class="badge">${statusRw} • ${esc(loan.status)}</span></div>
+<div class="body">
+<div class="row"><span>Umukiriya</span><strong>${esc(custName)}</strong></div>
+<div class="row"><span>Telefone</span><strong>${esc(cust.phone || "-")}</strong></div>
+<div class="row"><span>Taliki yafatiwe</span><strong>${created}</strong></div>
+<div class="row"><span>Itariki yo kwishyura</span><strong>${due}</strong></div>
+<h3 style="margin:16px 0 0">Ibintu mwafashe (${(loan.lineItems || []).length})</h3>
+<table><tr><th>#</th><th>Igicuruzwa</th><th style="text-align:center">Umubare</th><th style="text-align:right">Igiciro</th><th style="text-align:right">Igiteranyo</th></tr>${rows || '<tr><td colspan="5">Nta bintu birambuye</td></tr>'}</table>
+<div class="totals"><div class="row"><span>Igishoro (Principal)</span><strong>${fmt(loan.principal)}</strong></div><div class="row"><span>Byishyuwe (Paid ${pct}%)</span><strong>${fmt(paid)}</strong></div><div class="row"><span>Asigaye (Remaining)</span><strong style="color:${statusColor}">${fmt(loan.remaining)}</strong></div><div class="bar"><div></div></div></div>
+<div class="btns"><a class="btn btn-dark" href="${pdfLink}">📄 Manura PDF</a><a class="btn btn-green" href="${appLink}">🧾 Reba muri App →</a><a class="btn btn-line" href="#" onclick="window.print();return false">🖨️ Print / Bika</a></div>
+<p style="font-size:12px;color:#64748b;text-align:center">Nta konti isabwa — iyi link irahari kuri nyirayo gusa. / No login needed — keep this link private.</p>
+</div><div class="foot">${esc(shopName)} • ${esc(shopPhone)} • ${esc(shopEmail)} • ${new Date().toLocaleString()}</div></div></body></html>`);
+};
+
 export const getLoanReceiptPdf = async (req, res) => {
   const { loanId } = req.params;
   const loan = await Loan.findOne({ loanId }).populate("customer");

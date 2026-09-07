@@ -1,8 +1,9 @@
 import express from "express";
-import { getLoans, createLoan, collectPayment, getLoanById, addItemsToLoan, getLoanReceipt, getLoanReceiptPdf, getPaymentHistory, getLoanHistory, exportLoansCsv, sendReminder } from "../controllers/loanController.js";
+import { getLoans, createLoan, collectPayment, getLoanById, addItemsToLoan, getLoanReceipt, getLoanReceiptPdf, getLoanReceiptHtml, getPaymentHistory, getLoanHistory, exportLoansCsv, sendReminder } from "../controllers/loanController.js";
 import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
+router.get("/receipt/:loanId/html", getLoanReceiptHtml);
 router.get("/receipt/:loanId/pdf", getLoanReceiptPdf);
 router.get("/receipt/:loanId", getLoanReceipt);
 router.use(protect);

@@ -80,7 +80,9 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     const backendBase = process.env.BACKEND_URL || process.env.API_URL || "https://musiramubackend.onrender.com";
     const receiptLink = loanId ? `${frontendBase}/receipt/${loanId}` : "";
     const receiptPdfLink = loanId ? `${backendBase}/api/loans/receipt/${loanId}/pdf` : "";
-    const textBody = `[ADMIN] ${rwTypeLabel}\nUmukiriya: ${customerName}\n${loanId ? `Nimero y'umwenda: ${loanId}\n` : ""}${amountStr ? `Amafaranga: ${amountStr}\n` : ""}${details ? `${details}\n` : ""}${receiptPdfLink ? `Inyemezabwishyu PDF (nta login isabwa): ${receiptPdfLink}\n` : ""}${receiptLink ? `Reba kuri web: ${receiptLink}\n` : ""}Iduka: ${shopName}${ownerName ? ` (Nyir'iduka: ${ownerName})` : ""}\nIgihe: ${new Date().toLocaleString()}`;
+    // Public standalone HTML receipt — no login, shows all products. Use this in SMS.
+    const receiptHtmlLink = loanId ? `${backendBase}/api/loans/receipt/${loanId}/html` : "";
+    const textBody = `[ADMIN] ${rwTypeLabel}\nUmukiriya: ${customerName}\n${loanId ? `Nimero y'umwenda: ${loanId}\n` : ""}${amountStr ? `Amafaranga: ${amountStr}\n` : ""}${details ? `${details}\n` : ""}${receiptHtmlLink ? `Reba ibintu yafashe (nta login isabwa): ${receiptHtmlLink}\n` : ""}${receiptPdfLink ? `Inyemezabwishyu PDF: ${receiptPdfLink}\n` : ""}${receiptLink ? `Reba kuri web: ${receiptLink}\n` : ""}Iduka: ${shopName}${ownerName ? ` (Nyir'iduka: ${ownerName})` : ""}\nIgihe: ${new Date().toLocaleString()}`;
 
     const htmlBody = `
       <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
@@ -93,6 +95,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           ${loanId ? `<p style="margin:0 0 8px 0"><strong>Nimero y'umwenda:</strong> <span style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:6px">${loanId}</span></p>` : ""}
           ${amountStr ? `<p style="margin:0 0 8px 0"><strong>Amafaranga:</strong> <span style="color:#4f46e5;font-weight:700">${amountStr}</span></p>` : ""}
           ${details ? `<p style="margin:0 0 8px 0;font-size:13px;color:#334155;background:#f8fafc;padding:10px;border-radius:8px;border:1px solid #e2e8f0">${details}</p>` : ""}
+          ${receiptHtmlLink ? `<a href="${receiptHtmlLink}" style="display:inline-block;margin-top:12px;background:#0f172a;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:8px">🧾 Reba ibintu yafashe (nta login)</a>` : ""}
           ${receiptPdfLink ? `<a href="${receiptPdfLink}" style="display:inline-block;margin-top:12px;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:8px">📄 Manura Inyemezabwishyu PDF (nta login)</a>` : ""}
           ${receiptLink ? `<a href="${receiptLink}" style="display:inline-block;margin-top:12px;background:#4f46e5;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Reba kuri Web →</a>` : ""}
           <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
@@ -132,7 +135,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         const amountFmt = amountStr || (amount ? `${new Intl.NumberFormat("en-RW").format(amount)} RWF` : "");
         // Exact format requested - NO loanId shown to client
         custSubject = `[${shopName}] Umwenda mushya - ${amountFmt}`;
-        custText = `Mukiriya mwiza ${customerFullName},\n\nTwemeje ko mwahawe umwenda ugizwe na ${itemsNames}, ufite agaciro ka ${amountFmt}.\n\nItariki yo kwishyura: ${dueStr}\n\nReba inyemezabwishyu: ${receiptLink}\nReba PDF: ${receiptPdfLink}\n\nMurakoze kutugirira icyizere.\n\n${shopName}\n${shopPhone} • ${shopEmail}`;
+        custText = `Mukiriya mwiza ${customerFullName},\n\nTwemeje ko mwahawe umwenda ugizwe na ${itemsNames}, ufite agaciro ka ${amountFmt}.\n\nItariki yo kwishyura: ${dueStr}\n\nReba ibintu mwafashe (nta login isabwa): ${receiptHtmlLink}\nReba PDF: ${receiptPdfLink}\n\nMurakoze kutugirira icyizere.\n\n${shopName}\n${shopPhone} • ${shopEmail}`;
         custHtml = `
         <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#f8fafc;padding:16px">
           <div style="background:white;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.06)">
@@ -148,7 +151,8 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
                 <div><p style="margin:0;font-size:10px;color:#64748b;font-weight:700;letter-spacing:0.08em;text-transform:uppercase">Itariki yo kwishyura</p><p style="margin:6px 0 0 0;font-size:14px;font-weight:800;color:#0f172a">📅 ${dueStr}</p></div>
                 <div style="text-align:right"><p style="margin:0;font-size:10px;color:#64748b;font-weight:700;letter-spacing:0.08em;text-transform:uppercase">Agaciro</p><p style="margin:6px 0 0 0;font-size:14px;font-weight:800;color:#059669">${amountFmt}</p></div>
               </div>
-              <a href="${receiptLink}" style="display:block;margin-top:20px;background:#0f172a;color:white;text-align:center;padding:14px;border-radius:12px;text-decoration:none;font-weight:700;font-size:14px">🧾 Reba inyemezabwishyu</a>
+              <a href="${receiptHtmlLink}" style="display:block;margin-top:20px;background:#0f172a;color:white;text-align:center;padding:14px;border-radius:12px;text-decoration:none;font-weight:700;font-size:14px">🧾 Reba ibintu mwafashe (nta login)</a>
+              <a href="${receiptLink}" style="display:block;margin-top:10px;background:#4f46e5;color:white;text-align:center;padding:12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:13px">🧾 Reba muri App →</a>
               <a href="${receiptPdfLink}" style="display:block;margin-top:10px;background:white;color:#0f172a;text-align:center;padding:12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:13px;border:1px solid #e2e8f0">📄 Manura PDF (nta konti isabwa)</a>
               <p style="margin:20px 0 0 0;font-size:13px;color:#475569;text-align:center">Murakoze kutugirira icyizere.</p>
             </div>
@@ -159,8 +163,8 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           </div>
         </div>
       `;
-        // Build SMS loan - NO loanId shown to client, PDF receipt link included
-        const loanLink = receiptPdfLink || receiptLink;
+        // Build SMS loan - NO loanId shown to client, public HTML receipt link (no login, shows products)
+        const loanLink = receiptHtmlLink || receiptPdfLink || receiptLink;
         const takingDate = loanForMsg?.createdAt ? new Date(loanForMsg.createdAt) : new Date();
         const takingStr = `${String(takingDate.getDate()).padStart(2,'0')}/${String(takingDate.getMonth()+1).padStart(2,'0')}`;
         const shortDue = dueStr.slice(0,5); // 10/09
@@ -197,8 +201,8 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         </div>
       `;
         if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
-        // Payment SMS: NO loanId to client
-        const payLink = receiptPdfLink || receiptLink;
+        // Payment SMS: NO loanId to client, public HTML receipt (shows products, no login)
+        const payLink = receiptHtmlLink || receiptPdfLink || receiptLink;
         const payPrefix = `Muraho ${customerFullName}, kwishyura kwa ${amountStr} kwakiriwe. `;
         const paySuffix = `Asigaye: ${payRemaining}. PDF: ${payLink}`;
         smsTextCustomer = (payPrefix + paySuffix).slice(0, 160);
@@ -223,7 +227,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         </div>
       `;
         if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
-        const reminderLink = receiptPdfLink || receiptLink || "";
+        const reminderLink = receiptHtmlLink || receiptPdfLink || receiptLink || "";
         const baseRemind = `Muraho ${customerFullName}, ${details ? details.split("—")[0].trim() : rwLabel} ${amountStr}. `.slice(0,80);
         const suffixRemind = reminderLink ? `PDF: ${reminderLink}` : "";
         smsTextCustomer = (baseRemind + suffixRemind).slice(0,160);
@@ -248,13 +252,13 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         </div>
       `;
         if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
-        const pdfForSms = receiptPdfLink || receiptLink;
+        const pdfForSms = receiptHtmlLink || receiptPdfLink || receiptLink;
         smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwLabel} ${amountStr ? amountStr : ""} ${pdfForSms ? `PDF: ${pdfForSms}` : ""}`.trim().slice(0, 160);
       }
     }
 
     // Build SMS text - ADMIN now also Kinyarwanda as requested (not English)
-    let smsTextShop = `${shopName}: [ADMIN] ${rwTypeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${receiptPdfLink ? `PDF: ${receiptPdfLink}` : receiptLink ? `Reba: ${receiptLink}` : ""}`.trim().slice(0, 160);
+    let smsTextShop = `${shopName}: [ADMIN] ${rwTypeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${receiptHtmlLink ? `Reba: ${receiptHtmlLink}` : receiptPdfLink ? `PDF: ${receiptPdfLink}` : receiptLink ? `Reba: ${receiptLink}` : ""}`.trim().slice(0, 160);
     // If per-type Kinyarwanda SMS already set for customer, make admin also Kinyarwanda (mirror customer but with [ADMIN] tag)
     if (smsTextCustomer && smsTextCustomer.startsWith(`${shopName}: Muraho`)) {
       // Reuse customer Kinyarwanda text for admin but prefix [ADMIN]
@@ -262,7 +266,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       // keep admin version if customer version is more detailed (loan/payment/reminder have full details)
       if (customerCore.length <= 160) smsTextShop = customerCore;
     }
-    if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwTypeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${receiptPdfLink ? `PDF: ${receiptPdfLink}` : ""}`.trim().slice(0, 160);
+    if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwTypeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${receiptHtmlLink ? `Reba: ${receiptHtmlLink}` : ""}`.trim().slice(0, 160);
     // Keep distinct: admin gets [ADMIN] EN, customer gets Kinyarwanda personal
 
     // SMS recipients: shop phone + owner phone - NO SMS on customer registration as requested (only loan/payment/add_items/overdue)
