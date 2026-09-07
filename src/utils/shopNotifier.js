@@ -2,8 +2,19 @@ import Log from "../models/Log.js";
 import ShopProfile from "../models/ShopProfile.js";
 import User from "../models/User.js";
 import Customer from "../models/Customer.js";
+import crypto from "crypto";
 import { sendEmail } from "./email.js";
 import { sendSMS } from "./sms.js";
+
+// SMS must stay ≤160 chars AND keep the receipt link fully clickable —
+// trim the human-readable words, never the link at the end.
+const fitSms = (head, link) => {
+  const tail = link ? ` ${link}` : "";
+  const full = `${head}${tail}`;
+  if (full.length <= 160) return full;
+  const room = Math.max(0, 160 - tail.length - 4);
+  return `${head.slice(0, room)}...${tail}`;
+};
 
 export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId = "", loanDbId = null, customerId = null, ownerId, details = "" }) => {
   try {
@@ -78,11 +89,35 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     const amountStr = amount ? `${new Intl.NumberFormat("en-RW").format(amount)} RWF` : "";
     const frontendBase = process.env.FRONTEND_URL || (process.env.NODE_ENV === "production" ? "https://musiramuloan.netlify.app" : "http://localhost:5177");
     const backendBase = process.env.BACKEND_URL || process.env.API_URL || "https://musiramubackend.onrender.com";
-    const receiptLink = loanId ? `${frontendBase}/receipt/${loanId}` : "";
-    const receiptPdfLink = loanId ? `${backendBase}/api/loans/receipt/${loanId}/pdf` : "";
-    // Public standalone HTML receipt — no login, shows all products. Use this in SMS.
-    const receiptHtmlLink = loanId ? `${backendBase}/api/loans/receipt/${loanId}/html` : "";
-    const textBody = `[ADMIN] ${rwTypeLabel}\nUmukiriya: ${customerName}\n${loanId ? `Nimero y'umwenda: ${loanId}\n` : ""}${amountStr ? `Amafaranga: ${amountStr}\n` : ""}${details ? `${details}\n` : ""}${receiptHtmlLink ? `Reba ibintu yafashe (nta login isabwa): ${receiptHtmlLink}\n` : ""}${receiptPdfLink ? `Inyemezabwishyu PDF: ${receiptPdfLink}\n` : ""}${receiptLink ? `Reba kuri web: ${receiptLink}\n` : ""}Iduka: ${shopName}${ownerName ? ` (Nyir'iduka: ${ownerName})` : ""}\nIgihe: ${new Date().toLocaleString()}`;
+    // Customer links use the secret receiptToken (no L-number visible anywhere);
+    // admin links keep the L-ID. Token is fetched/generated here so even older
+    // loans without one get a token on first notification.
+    let receiptToken = null;
+    if (loanDbId) {
+      try {
+        const LoanModel = (await import("../models/Loan.js")).default;
+        const tokLoan = await LoanModel.findById(loanDbId).select("receiptToken");
+        if (tokLoan) {
+          if (!tokLoan.receiptToken) {
+            try {
+              tokLoan.receiptToken = crypto.randomBytes(6).toString("base64url");
+              await tokLoan.save();
+            } catch {}
+          }
+          receiptToken = tokLoan.receiptToken || null;
+        }
+      } catch {}
+    }
+    const pubId = receiptToken || loanId; // what customers see in links (never the L-ID)
+    const receiptLink = pubId ? `${frontendBase}/receipt/${pubId}` : "";
+    const receiptPdfLink = pubId ? `${backendBase}/api/loans/receipt/${pubId}/pdf` : "";
+    // Public standalone HTML receipt — no login, shows all products. Used in customer SMS.
+    const receiptHtmlLink = pubId ? `${backendBase}/api/loans/receipt/${pubId}/html` : "";
+    // Admin keeps L-ID links
+    const receiptLinkAdmin = loanId ? `${frontendBase}/receipt/${loanId}` : "";
+    const receiptPdfLinkAdmin = loanId ? `${backendBase}/api/loans/receipt/${loanId}/pdf` : "";
+    const receiptHtmlLinkAdmin = loanId ? `${backendBase}/api/loans/receipt/${loanId}/html` : "";
+    const textBody = `[ADMIN] ${rwTypeLabel}\nUmukiriya: ${customerName}\n${loanId ? `Nimero y'umwenda: ${loanId}\n` : ""}${amountStr ? `Amafaranga: ${amountStr}\n` : ""}${details ? `${details}\n` : ""}${receiptHtmlLinkAdmin ? `Reba ibintu yafashe: ${receiptHtmlLinkAdmin}\n` : ""}${receiptPdfLinkAdmin ? `Inyemezabwishyu PDF: ${receiptPdfLinkAdmin}\n` : ""}${receiptLinkAdmin ? `Reba kuri web: ${receiptLinkAdmin}\n` : ""}Iduka: ${shopName}${ownerName ? ` (Nyir'iduka: ${ownerName})` : ""}\nIgihe: ${new Date().toLocaleString()}`;
 
     const htmlBody = `
       <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
@@ -95,9 +130,9 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
           ${loanId ? `<p style="margin:0 0 8px 0"><strong>Nimero y'umwenda:</strong> <span style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:6px">${loanId}</span></p>` : ""}
           ${amountStr ? `<p style="margin:0 0 8px 0"><strong>Amafaranga:</strong> <span style="color:#4f46e5;font-weight:700">${amountStr}</span></p>` : ""}
           ${details ? `<p style="margin:0 0 8px 0;font-size:13px;color:#334155;background:#f8fafc;padding:10px;border-radius:8px;border:1px solid #e2e8f0">${details}</p>` : ""}
-          ${receiptHtmlLink ? `<a href="${receiptHtmlLink}" style="display:inline-block;margin-top:12px;background:#0f172a;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:8px">🧾 Reba ibintu yafashe (nta login)</a>` : ""}
-          ${receiptPdfLink ? `<a href="${receiptPdfLink}" style="display:inline-block;margin-top:12px;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:8px">📄 Manura Inyemezabwishyu PDF (nta login)</a>` : ""}
-          ${receiptLink ? `<a href="${receiptLink}" style="display:inline-block;margin-top:12px;background:#4f46e5;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Reba kuri Web →</a>` : ""}
+          ${receiptHtmlLinkAdmin ? `<a href="${receiptHtmlLinkAdmin}" style="display:inline-block;margin-top:12px;background:#0f172a;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:8px">🧾 Reba ibintu yafashe (nta login)</a>` : ""}
+          ${receiptPdfLinkAdmin ? `<a href="${receiptPdfLinkAdmin}" style="display:inline-block;margin-top:12px;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:8px">📄 Manura Inyemezabwishyu PDF (nta login)</a>` : ""}
+          ${receiptLinkAdmin ? `<a href="${receiptLinkAdmin}" style="display:inline-block;margin-top:12px;background:#4f46e5;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Reba kuri Web →</a>` : ""}
           <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
           <p style="margin:0;font-size:12px;color:#64748b">Iduka: ${shopName} • ${shopEmail} • ${shopPhone}${ownerName ? ` • Nyir'iduka: ${ownerName} (${ownerEmail})` : ""}</p>
         </div>
@@ -201,11 +236,10 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         </div>
       `;
         if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
-        // Payment SMS: NO loanId to client, public HTML receipt (shows products, no login)
+        // Payment SMS: NO loanId to client, public token receipt link (shows products, no login)
         const payLink = receiptHtmlLink || receiptPdfLink || receiptLink;
         const payPrefix = `Muraho ${customerFullName}, kwishyura kwa ${amountStr} kwakiriwe. `;
-        const paySuffix = `Asigaye: ${payRemaining}. PDF: ${payLink}`;
-        smsTextCustomer = (payPrefix + paySuffix).slice(0, 160);
+        smsTextCustomer = fitSms(`${payPrefix}Asigaye: ${payRemaining}. PDF:`, payLink);
       } else if (type === "reminder") {
         const rwLabel = "Kwibutsa kwishyura";
         custSubject = `[${shopName}] ${rwLabel}: ${amountStr}`;
@@ -229,8 +263,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
         const reminderLink = receiptHtmlLink || receiptPdfLink || receiptLink || "";
         const baseRemind = `Muraho ${customerFullName}, ${details ? details.split("—")[0].trim() : rwLabel} ${amountStr}. `.slice(0,80);
-        const suffixRemind = reminderLink ? `PDF: ${reminderLink}` : "";
-        smsTextCustomer = (baseRemind + suffixRemind).slice(0,160);
+        smsTextCustomer = reminderLink ? fitSms(`${baseRemind}PDF:`, reminderLink) : baseRemind.slice(0, 160);
       } else {
         const rwLabel = { overdue: "Umwenda warengeje igihe", add_items: "Ibintu byongewe ku mwenda" }[type] || typeLabel;
         custSubject = `[${shopName}] ${rwLabel}: ${amountStr}`.trim();
@@ -253,21 +286,28 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
       `;
         if (customerEmail) sendEmail({ to: [customerEmail], subject: custSubject, text: custText, html: custHtml }).catch(e=>console.warn("customer email failed",e.message));
         const pdfForSms = receiptHtmlLink || receiptPdfLink || receiptLink;
-        smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwLabel} ${amountStr ? amountStr : ""} ${pdfForSms ? `PDF: ${pdfForSms}` : ""}`.trim().slice(0, 160);
+        const overdueHead = `${shopName}: Muraho ${customerFullName}, ${rwLabel}${amountStr ? ` ${amountStr}` : ""} PDF:`;
+        smsTextCustomer = pdfForSms ? fitSms(overdueHead, pdfForSms) : `${shopName}: Muraho ${customerFullName}, ${rwLabel}${amountStr ? ` ${amountStr}` : ""}`.slice(0, 160);
       }
     }
 
-    // Build SMS text - ADMIN now also Kinyarwanda as requested (not English)
-    let smsTextShop = `${shopName}: [ADMIN] ${rwTypeLabel} ${customerName} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${receiptHtmlLink ? `Reba: ${receiptHtmlLink}` : receiptPdfLink ? `PDF: ${receiptPdfLink}` : receiptLink ? `Reba: ${receiptLink}` : ""}`.trim().slice(0, 160);
-    // If per-type Kinyarwanda SMS already set for customer, make admin also Kinyarwanda (mirror customer but with [ADMIN] tag)
-    if (smsTextCustomer && smsTextCustomer.startsWith(`${shopName}: Muraho`)) {
-      // Reuse customer Kinyarwanda text for admin but prefix [ADMIN]
-      const customerCore = smsTextCustomer.replace(`${shopName}: Muraho`, `${shopName}: [ADMIN] Muraho`);
-      // keep admin version if customer version is more detailed (loan/payment/reminder have full details)
-      if (customerCore.length <= 160) smsTextShop = customerCore;
+    // Build SMS text - ADMIN sees the SAME full Kinyarwanda message as the customer,
+    // only tagged [ADMIN] so owner can verify exactly what the client received.
+    // (Drop the "ShopName: " prefix and prepend "[ADMIN] " so it stays within 160 chars
+    // without cutting the receipt link at the end.)
+    if (!smsTextCustomer) {
+      const fbHead = `${shopName}: Muraho ${customerFullName}, ${rwTypeLabel}${amountStr ? ` ${amountStr}` : ""} Reba:`;
+      smsTextCustomer = receiptHtmlLink ? fitSms(fbHead, receiptHtmlLink) : `${shopName}: Muraho ${customerFullName}, ${rwTypeLabel}${amountStr ? ` ${amountStr}` : ""}`.slice(0, 160);
     }
-    if (!smsTextCustomer) smsTextCustomer = `${shopName}: Muraho ${customerFullName}, ${rwTypeLabel} ${loanId ? loanId : ""} ${amountStr ? amountStr : ""} ${receiptHtmlLink ? `Reba: ${receiptHtmlLink}` : ""}`.trim().slice(0, 160);
-    // Keep distinct: admin gets [ADMIN] EN, customer gets Kinyarwanda personal
+    // ADMIN sees the SAME full Kinyarwanda message (link-aware: never cut the receipt link).
+    let smsTextShop;
+    {
+      const shopPrefix = `${shopName}: `;
+      const core = smsTextCustomer.startsWith(shopPrefix) ? smsTextCustomer.slice(shopPrefix.length) : smsTextCustomer;
+      const linkMatch = core.match(/(https?:\/\/\S+)\s*$/);
+      if (linkMatch) smsTextShop = fitSms(`[ADMIN] ${core.slice(0, linkMatch.index).trim()}`, linkMatch[1]);
+      else smsTextShop = `[ADMIN] ${core}`.slice(0, 160);
+    }
 
     // SMS recipients: shop phone + owner phone - NO SMS on customer registration as requested (only loan/payment/add_items/overdue)
     let shopSmsRes = null;

@@ -43,9 +43,21 @@ if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
 import mongoose from "mongoose";
 import cron from "node-cron";
+import crypto from "crypto";
+import Loan from "./models/Loan.js";
 import { runReminderJob } from "./jobs/reminders.js";
 
 await connectDB();
+
+// one-time backfill: older loans have no receiptToken (secret customer link ID)
+try {
+  const missing = await Loan.find({ $or: [{ receiptToken: null }, { receiptToken: { $exists: false } }] }).select("_id").limit(5000);
+  for (const l of missing) {
+    l.receiptToken = crypto.randomBytes(6).toString("base64url");
+    await l.save();
+  }
+  if (missing.length) console.log(`🔑 Backfilled ${missing.length} receipt tokens`);
+} catch (e) { console.warn("token backfill failed", e.message); }
 
 // background: auto-mark overdue + daily reminder (SMS + email to customer AND admin)
 // - runs immediately on startup (so Render restarts don't wait 10 min)

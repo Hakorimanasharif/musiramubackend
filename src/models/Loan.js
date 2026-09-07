@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import crypto from "crypto";
 
 const lineItemSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -20,7 +21,9 @@ const historyEntrySchema = new mongoose.Schema({
 }, { _id: true });
 
 const loanSchema = new mongoose.Schema({
-  loanId: { type: String, unique: true, required: true }, // L-1001
+  loanId: { type: String, unique: true, required: true }, // L-1001 (internal/admin only, never shown to customers)
+  // Public receipt token for customer links — random, so customers never see the L-number.
+  receiptToken: { type: String, unique: true, sparse: true, index: true },
   customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", required: true },
   items: { type: String, required: true }, // joined string for display
   lineItems: { type: [lineItemSchema], default: [] },
@@ -36,6 +39,9 @@ const loanSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 loanSchema.pre("save", function(next){
+  if (!this.receiptToken) {
+    try { this.receiptToken = crypto.randomBytes(6).toString("base64url"); } catch {}
+  }
   if(this.remaining === 0) this.status = "Paid";
   else if(this.dueDate < new Date() && this.status !== "Paid") {
     // keep Overdue if already overdue, or set to Overdue if past due and not Paid

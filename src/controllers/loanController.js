@@ -155,7 +155,8 @@ export const getLoanById = async (req, res) => {
 
 export const getLoanReceipt = async (req, res) => {
   const { loanId } = req.params;
-  const loan = await Loan.findOne({ loanId }).populate("customer");
+  // Accept internal L-ID (admin/app) OR public receiptToken (customer links) — customers never see L-numbers.
+  const loan = await Loan.findOne({ $or: [{ loanId }, { receiptToken: loanId }] }).populate("customer");
   if (!loan) return res.status(404).json({message:"Receipt not found"});
   const ShopProfile = (await import("../models/ShopProfile.js")).default;
   const shop = await ShopProfile.findOne();
@@ -166,7 +167,7 @@ export const getLoanReceipt = async (req, res) => {
 // Open on any phone via the SMS link, shows all products taken.
 export const getLoanReceiptHtml = async (req, res) => {
   const { loanId } = req.params;
-  const loan = await Loan.findOne({ loanId }).populate("customer");
+  const loan = await Loan.findOne({ $or: [{ loanId }, { receiptToken: loanId }] }).populate("customer");
   if (!loan) return res.status(404).send("<h1>Receipt not found</h1>");
   const ShopProfile = (await import("../models/ShopProfile.js")).default;
   const shop = (await ShopProfile.findOne()?.lean?.()) || await ShopProfile.findOne() || {};
@@ -189,13 +190,16 @@ export const getLoanReceiptHtml = async (req, res) => {
   const frontendBase = process.env.FRONTEND_URL || (process.env.NODE_ENV === "production" ? "https://musiramuloan.netlify.app" : "http://localhost:5177");
   const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
   const backendBase = process.env.BACKEND_URL || process.env.API_URL || `${proto}://${req.get("host")}`;
-  const pdfLink = `${backendBase}/api/loans/receipt/${loan.loanId}/pdf`;
-  const appLink = `${frontendBase}/receipt/${loan.loanId}`;
+  const pdfLink = `${backendBase}/api/loans/receipt/${loanId}/pdf`;
+  const appLink = `${frontendBase}/receipt/${loanId}`;
+  // Opened with the secret token (customer) vs the L-ID (admin): hide the L-number from customers.
+  const viaToken = !!(loan.receiptToken && loanId === loan.receiptToken);
+  const refTitle = viaToken ? "Inyemezabwishyu" : `Inyemezabwishyu ${esc(loan.loanId)}`;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.send(`<!DOCTYPE html><html lang="rw"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Inyemezabwishyu ${esc(loan.loanId)} — ${esc(shopName)}</title>
+  res.send(`<!DOCTYPE html><html lang="rw"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${refTitle} — ${esc(shopName)}</title>
 <style>*{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f1f5f9;margin:0;padding:16px;color:#0f172a}.card{max-width:640px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden}.head{background:#0f172a;color:#fff;padding:22px;text-align:center}.head h1{margin:0;font-size:18px}.head p{margin:6px 0 0;font-size:12px;opacity:.75}.badge{display:inline-block;margin-top:10px;background:${statusColor};color:#fff;font-weight:800;font-size:12px;padding:6px 14px;border-radius:999px}.body{padding:20px}.row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:14px}.row span:first-child{color:#64748b}table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}th{background:#f8fafc;color:#475569;text-align:left;padding:8px;border-bottom:2px solid #e2e8f0}td{padding:8px;border-bottom:1px solid #f1f5f9}.totals{margin-top:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;font-size:14px}.bar{height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden;margin-top:8px}.bar div{height:100%;background:${statusColor};width:${pct}%}.btns{display:flex;flex-direction:column;gap:10px;margin-top:16px}.btn{display:block;text-align:center;padding:13px;border-radius:12px;font-weight:700;font-size:14px;text-decoration:none}.btn-dark{background:#0f172a;color:#fff}.btn-green{background:#059669;color:#fff}.btn-line{background:#fff;color:#0f172a;border:1px solid #e2e8f0}.foot{text-align:center;font-size:11px;color:#64748b;padding:14px}@media print{.btns{display:none}body{background:#fff;padding:0}.card{border:none}}</style></head><body>
-<div class="card"><div class="head"><h1>${esc(shopName)}</h1><p>Inyemezabwishyu • Receipt ${esc(loan.loanId)}</p><span class="badge">${statusRw} • ${esc(loan.status)}</span></div>
+<div class="card"><div class="head"><h1>${esc(shopName)}</h1><p>${viaToken ? "Inyemezabwishyu" : `Inyemezabwishyu • Receipt ${esc(loan.loanId)}`}</p><span class="badge">${statusRw} • ${esc(loan.status)}</span></div>
 <div class="body">
 <div class="row"><span>Umukiriya</span><strong>${esc(custName)}</strong></div>
 <div class="row"><span>Telefone</span><strong>${esc(cust.phone || "-")}</strong></div>
@@ -211,7 +215,7 @@ export const getLoanReceiptHtml = async (req, res) => {
 
 export const getLoanReceiptPdf = async (req, res) => {
   const { loanId } = req.params;
-  const loan = await Loan.findOne({ loanId }).populate("customer");
+  const loan = await Loan.findOne({ $or: [{ loanId }, { receiptToken: loanId }] }).populate("customer");
   if (!loan) return res.status(404).json({message:"Receipt not found"});
   const ShopProfile = (await import("../models/ShopProfile.js")).default;
   const shop = await ShopProfile.findOne() || { shopName: "IHAHIRONYARYO LTD", email: "hakorimanasharif12@gmail.com", phone: "0788609341", currency: "RWF" };
@@ -221,8 +225,9 @@ export const getLoanReceiptPdf = async (req, res) => {
   const doc = new PDFDocument({ size: "A4", margin: 40 });
 
   const disType = req.query.download === "1" ? "attachment" : "inline";
+  const viaToken = !!(loan.receiptToken && loanId === loan.receiptToken);
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `${disType}; filename="Receipt-${loan.loanId}.pdf"`);
+  res.setHeader("Content-Disposition", `${disType}; filename="${viaToken ? "Inyemezabwishyu" : `Receipt-${loan.loanId}`}.pdf"`);
   res.setHeader("Access-Control-Allow-Origin", "*");
   doc.pipe(res);
 
@@ -230,7 +235,7 @@ export const getLoanReceiptPdf = async (req, res) => {
   doc.fillColor("#4f46e5").rect(0,0,600,90).fill();
   doc.fillColor("white").fontSize(20).font("Helvetica-Bold").text(shop.shopName, 40, 30);
   doc.fontSize(9).font("Helvetica").text(`${shop.email} • ${shop.phone} • ${shop.currency}`, 40, 55);
-  doc.fontSize(10).text(`Receipt: ${loan.loanId}`, 400, 30, { align: "right" });
+  if (!viaToken) doc.fontSize(10).text(`Receipt: ${loan.loanId}`, 400, 30, { align: "right" });
   doc.fontSize(8).text(`Date: ${new Date(loan.createdAt).toISOString().slice(0,10)}  Due: ${new Date(loan.dueDate).toISOString().slice(0,10)}`, 400, 45, { align: "right" });
   const statusColor = loan.status === "Paid" ? "#10b981" : loan.status === "Overdue" ? "#ef4444" : "#f59e0b";
   const statusText = loan.status === "Overdue" ? "BYARENZE IGIHE" : loan.status === "Paid" ? "BYISHYUWE" : "PENDING";
@@ -245,7 +250,7 @@ export const getLoanReceiptPdf = async (req, res) => {
   doc.fillColor("black");
   // Loan
   doc.fontSize(11).font("Helvetica-Bold").text("Loan", 350, y);
-  doc.fontSize(9).font("Helvetica").text(`ID: ${loan.loanId}`, 350, y+15);
+  if (!viaToken) doc.fontSize(9).font("Helvetica").text(`ID: ${loan.loanId}`, 350, y+15);
   doc.text(`Created: ${new Date(loan.createdAt).toISOString().slice(0,10)}`, 350, y+28);
 
   y = 160;
@@ -291,7 +296,7 @@ export const getLoanReceiptPdf = async (req, res) => {
 
   y += 30;
   doc.fillColor("#64748b").fontSize(7).text(`Official receipt • ${shop.shopName} • ${shop.phone} • ${shop.email} • ${new Date().toLocaleString()}`, 40, y, { align: "center", width: 515 });
-  doc.text(`Receipt link: ${process.env.FRONTEND_URL || "https://musiramuloan.netlify.app"}/receipt/${loan.loanId}`, 40, y+10, { align: "center", width: 515 });
+  doc.text(`Receipt link: ${process.env.FRONTEND_URL || "https://musiramuloan.netlify.app"}/receipt/${loanId}`, 40, y+10, { align: "center", width: 515 });
 
   doc.end();
 };
