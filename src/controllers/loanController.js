@@ -324,20 +324,47 @@ export const sendReminder = async (req, res) => {
   const detail = loan.status === "Overdue"
     ? `Manual 3-day reminder — Overdue ${daysOverdue} days, Remaining: ${loan.remaining} RWF. Due was ${new Date(loan.dueDate).toISOString().slice(0,10)} — Click to view/pay.`
     : `Manual 3-day reminder — Due in ${daysLeft} day(s) on ${new Date(loan.dueDate).toISOString().slice(0,10)}, Remaining: ${loan.remaining} RWF. Tap to view/pay.`;
-  await notifyShopOwner({
-    type: "reminder",
-    customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
-    amount: loan.remaining,
+  let notifyRes = null;
+  try {
+    notifyRes = await notifyShopOwner({
+      type: "reminder",
+      customerName: loan.customer ? `${loan.customer.firstName} ${loan.customer.lastName}` : "Customer",
+      amount: loan.remaining,
+      loanId: loan.loanId,
+      loanDbId: loan._id,
+      customerId: loan.customer?._id,
+      ownerId: req.user._id,
+      details: detail,
+    });
+  } catch (e) {
+    console.warn("manual reminder failed", loan.loanId, e.message);
+    return res.status(502).json({ success: false, message: `Reminder failed: ${e.message}`, loanId: loan.loanId });
+  }
+  // Report the REAL delivery outcome per recipient (never claim "sent" on failure).
+  const shopR = notifyRes?.shopSmsRes;
+  const custR = notifyRes?.custRes;
+  const shopStatus = !shopR ? "failed" : shopR.success ? "sent" : shopR.simulated ? "simulated" : "failed";
+  const custStatus = !loan.customer?.phone
+    ? "skipped-no-phone"
+    : !custR ? "skipped" : custR.success ? "sent" : custR.simulated ? "simulated" : "failed";
+  const ok = notifyRes?.smsSuccess === true;
+  if (ok) {
+    loan.lastReminderAt = new Date();
+    if (loan.status === "Overdue") loan.lastOverdueNotifiedAt = new Date();
+    await loan.save();
+  } else {
+    console.warn(`manual reminder NOT fully delivered for ${loan.loanId}: shop=${shopStatus} customer=${custStatus} — timestamps untouched so auto-cron retries`);
+  }
+  return res.status(ok ? 200 : 502).json({
+    success: ok,
+    message: ok ? "Reminder sent to customer and admin" : "Reminder failed — see sms detail (timestamps untouched, auto-cron will retry)",
     loanId: loan.loanId,
-    loanDbId: loan._id,
-    customerId: loan.customer?._id,
-    ownerId: req.user._id,
-    details: detail,
+    sms: {
+      simulated: !!notifyRes?.simulated,
+      shop: { status: shopStatus, to: Array.isArray(shopR?.to) ? shopR.to.join(",") : shopR?.to, text: notifyRes?.smsTextShop, error: shopR?.error },
+      customer: { status: custStatus, to: loan.customer?.phone || null, text: notifyRes?.smsTextCustomer, error: custR?.error },
+    },
   });
-  loan.lastReminderAt = new Date();
-  if (loan.status === "Overdue") loan.lastOverdueNotifiedAt = new Date();
-  await loan.save();
-  res.json({ message: "Reminder sent to customer and admin", loanId: loan.loanId });
 };
 
 export const addItemsToLoan = async (req, res) => {

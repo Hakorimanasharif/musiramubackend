@@ -356,7 +356,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     const shopOk = type === "customer" ? true : (shopSmsRes && (shopSmsRes.success || shopSmsRes.simulated));
     const custOk = type === "customer" ? true : (!custRes ? true : (custRes.success || custRes.simulated));
     const smsSuccess = !!(shopOk && custOk);
-    return { shopEmail: recipientsShop.join(", "), shopPhone, subject, body: textBody, smsSuccess, simulated: !!(shopSmsRes?.simulated || custRes?.simulated), shopSmsRes, custRes };
+    return { shopEmail: recipientsShop.join(", "), shopPhone, subject, body: textBody, smsSuccess, simulated: !!(shopSmsRes?.simulated || custRes?.simulated), shopSmsRes, custRes, smsTextShop, smsTextCustomer, customerPhone };
   } catch (e) {
     console.error("Shop notify error:", e.message);
   }
