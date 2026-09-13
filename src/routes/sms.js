@@ -43,9 +43,17 @@ router.post("/otp", async (req, res) => {
 
 // GET /api/sms/balance - check wallet
 router.get("/balance", async (req, res) => {
-  const bal = await getSmsBalance();
-  if (bal.success) return res.json(bal);
-  return res.status(502).json(bal);
+  try {
+    const bal = await getSmsBalance();
+    // Sanitize: never leak provider trace objects to the client
+    if (bal?.error && typeof bal.error === "object") {
+      bal.error = bal.error.message || bal.error.error || JSON.stringify(bal.error).slice(0, 300);
+    }
+    if (bal.success || bal.simulated) return res.json(bal);
+    return res.status(502).json(bal);
+  } catch (e) {
+    return res.status(502).json({ success: false, error: String(e?.message || "balance check failed").slice(0, 300) });
+  }
 });
 
 // GET /api/sms/logs - delivery reports

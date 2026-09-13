@@ -213,6 +213,21 @@ export const sendOTP = async ({ to, otp, senderId, purpose = "verification" }) =
 };
 
 // Helper: Check wallet balance (smsconnect or esms) - now via axios
+// Always returns error as a STRING (never an object) so frontend never
+// receives {message, exception, file, line, trace} which crashes React (#31).
+const toErrorString = (err) => {
+  const data = err?.response?.data;
+  if (typeof data === "string") return data.slice(0, 300);
+  if (data && typeof data === "object") {
+    if (typeof data.message === "string" && data.message) return data.message.slice(0, 300);
+    if (typeof data.error === "string" && data.error) return data.error.slice(0, 300);
+    try {
+      const s = JSON.stringify(data);
+      return s.slice(0, 300);
+    } catch {}
+  }
+  return String(err?.message || "balance check failed").slice(0, 300);
+};
 export const getSmsBalance = async () => {
   const smsConnectKey = process.env.SMSCONNECT_API_KEY;
   const smsConnectSecret = process.env.SMSCONNECT_API_SECRET;
@@ -225,7 +240,7 @@ export const getSmsBalance = async () => {
       const data = response.data;
       return { success: true, provider: "smsconnect", data: data.data || data };
     } catch (error) {
-      return { success: false, provider: "smsconnect", error: error.response?.data || error.message, status: error.response?.status };
+      return { success: false, provider: "smsconnect", error: toErrorString(error), status: error.response?.status };
     }
   }
   const apiKey = process.env.ESMS_API_KEY || process.env.SMS_API_KEY;
@@ -235,7 +250,7 @@ export const getSmsBalance = async () => {
     const response = await axios.get(url, { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 10000 });
     return { success: true, provider: "esms", data: response.data };
   } catch (error) {
-    return { success: false, provider: "esms", error: error.response?.data || error.message, status: error.response?.status };
+    return { success: false, provider: "esms", error: toErrorString(error), status: error.response?.status };
   }
 };
 
