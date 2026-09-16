@@ -95,9 +95,12 @@ export const sendSMS = async ({ to, message, text, senderId, type = "loan", loan
     const results = [];
     let lastError = null;
     for (const recipient of formatted) {
-      // SMSConnect expects recipient without + as 2507... per docs
+      // SMSConnect expects recipient without + as 2507... per docs.
+      // recipient_type manual: loan/customer/shop numbers are NOT in
+      // Contacts — default "contact" creates the message with 0 recipients
+      // (dashboard Sent 0/0, handset never gets it, still costs 10 RWF).
       const recipientClean = recipient.replace(/^\+/, "");
-      const body = { recipient: recipientClean, message: finalText, sender_id: sender };
+      const body = { recipient: recipientClean, message: finalText, sender_id: sender, recipient_type: "manual" };
       const headers = {
         Authorization: `Bearer ${smsConnectKey}`,
         "Content-Type": "application/json",
