@@ -23,6 +23,11 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     if (!shop) shop = await ShopProfile.findOne();
     const shopEmail = shop?.email || "hakorimanasharif12@gmail.com";
     const shopPhone = shop?.phone || "0788609341";
+    // Dedicated admin SMS alert number — set in Settings > Shop Profile.
+    // When set, admin loan/payment/overdue SMS goes HERE instead of the
+    // public shop contact, without changing receipts/public display.
+    const smsAlertPhone = shop?.smsPhone || "";
+    const adminSmsPrimary = smsAlertPhone || shopPhone;
     const shopName = shop?.shopName || "IHAHIRONYARYO LTD";
 
     // Also fetch owner user email directly
@@ -320,7 +325,10 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
         const ownerForSms = await User.findById(ownerId).select("phone");
         if (ownerForSms?.phone) ownerPhone = ownerForSms.phone;
       }
-      const smsRecipientsShop = [...new Set([shopPhone, ownerPhone].filter(Boolean))];
+      // Admin SMS destination: dedicated alert number (if set) + owner login
+      // phone. Changing either in Settings/Profile takes effect immediately
+      // on the next loan/payment/overdue — no restart needed.
+      const smsRecipientsShop = [...new Set([adminSmsPrimary, ownerPhone].filter(Boolean))];
       const smsRecipientsCustomer = customerPhone ? [customerPhone] : [];
 
       console.log(`📱 SMS content [${type}] shop: "${smsTextShop}" customer: "${smsTextCustomer}" shopRecipients:${smsRecipientsShop.join(",")} customerRecipients:${smsRecipientsCustomer.join(",")}`);
@@ -356,7 +364,7 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
     const shopOk = type === "customer" ? true : (shopSmsRes && (shopSmsRes.success || shopSmsRes.simulated));
     const custOk = type === "customer" ? true : (!custRes ? true : (custRes.success || custRes.simulated));
     const smsSuccess = !!(shopOk && custOk);
-    return { shopEmail: recipientsShop.join(", "), shopPhone, subject, body: textBody, smsSuccess, simulated: !!(shopSmsRes?.simulated || custRes?.simulated), shopSmsRes, custRes, smsTextShop, smsTextCustomer, customerPhone };
+    return { shopEmail: recipientsShop.join(", "), shopPhone, smsAlertPhone, adminSmsPrimary, subject, body: textBody, smsSuccess, simulated: !!(shopSmsRes?.simulated || custRes?.simulated), shopSmsRes, custRes, smsTextShop, smsTextCustomer, customerPhone };
   } catch (e) {
     console.error("Shop notify error:", e.message);
   }

@@ -4,6 +4,9 @@ const shopProfileSchema = new mongoose.Schema({
   shopName: { type: String, default: "IHAHIRONYARYO LTD" },
   currency: { type: String, default: "RWF" },
   phone: { type: String, default: "0788609341" },
+  // Dedicated admin SMS alert number — when set, admin SMS goes here
+  // instead of `phone`, without changing the public shop contact.
+  smsPhone: { type: String, default: "" },
   email: { type: String, default: "hakorimanasharif12@gmail.com" },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", unique: true },
   notifications: {

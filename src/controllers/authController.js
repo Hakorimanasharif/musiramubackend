@@ -1,7 +1,7 @@
 import User from "../models/User.js";
 import Otp from "../models/Otp.js";
 import { generateToken } from "../utils/generateToken.js";
-import { sendOTP } from "../utils/sms.js";
+import { sendOTP, formatRwPhone } from "../utils/sms.js";
 import crypto from "crypto";
 
 export const register = async (req, res) => {
@@ -13,10 +13,12 @@ export const register = async (req, res) => {
   if (exists) return res.status(400).json({ message: "User already exists" });
   // also allow phone unique check
   if (phone) {
-    const phoneExists = await User.findOne({ phone });
+    if (!formatRwPhone(phone)) return res.status(400).json({ message: "Invalid phone — use 10 digits like 0788609341" });
+    const phoneDigits = String(phone).replace(/\D/g, "");
+    const phoneExists = await User.findOne({ phone: phoneDigits });
     if (phoneExists) return res.status(400).json({ message: "Phone already registered" });
   }
-  const user = await User.create({ name, email, phone, password });
+  const user = await User.create({ name, email, phone: phone ? String(phone).replace(/\D/g, "") : undefined, password });
   const token = generateToken(user._id);
   res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role } });
 };
@@ -52,7 +54,12 @@ export const updateProfile = async (req, res) => {
   const user = await User.findById(req.user._id);
   if (name) user.name = name;
   if (email) user.email = email.toLowerCase();
-  if (phone) user.phone = phone;
+  // Owner login phone doubles as 2nd admin SMS destination — validate now
+  // so loan/payment alerts never silently drop later.
+  if (phone !== undefined) {
+    if (phone && !formatRwPhone(phone)) return res.status(400).json({ message: "Invalid phone — use 10 digits like 0788609341" });
+    if (phone) user.phone = String(phone).replace(/\D/g, "");
+  }
   // role escalation protection - only allow Admin/SuperAdmin to change roles
   if (role && !["Admin","SuperAdmin"].includes(req.user.role)) {
     return res.status(403).json({ message: "Not authorized to change role" });

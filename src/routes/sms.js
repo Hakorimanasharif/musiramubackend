@@ -1,6 +1,6 @@
 import express from "express";
 import { protect } from "../middleware/auth.js";
-import sendSMS, { sendOTP, getSmsBalance, formatRwPhone } from "../utils/sms.js";
+import sendSMS, { sendOTP, formatRwPhone } from "../utils/sms.js";
 import SmsLog from "../models/SmsLog.js";
 
 const router = express.Router();
@@ -41,19 +41,10 @@ router.post("/otp", async (req, res) => {
   }
 });
 
-// GET /api/sms/balance - check wallet
+// GET /api/sms/balance - DISABLED: no provider request (was causing 502s).
+// Kept as 200 stub so old clients don't error; frontend no longer calls it.
 router.get("/balance", async (req, res) => {
-  try {
-    const bal = await getSmsBalance();
-    // Sanitize: never leak provider trace objects to the client
-    if (bal?.error && typeof bal.error === "object") {
-      bal.error = bal.error.message || bal.error.error || JSON.stringify(bal.error).slice(0, 300);
-    }
-    if (bal.success || bal.simulated) return res.json(bal);
-    return res.status(502).json(bal);
-  } catch (e) {
-    return res.status(502).json({ success: false, error: String(e?.message || "balance check failed").slice(0, 300) });
-  }
+  return res.json({ success: false, disabled: true, message: "balance check disabled" });
 });
 
 // GET /api/sms/logs - delivery reports
