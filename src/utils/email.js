@@ -24,7 +24,9 @@ const getTransporter = async () => {
       port,
       secure: port === 465, // 465=SSL, 587=STARTTLS
       auth: { user, pass },
-      tls: { rejectUnauthorized: false },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 10000,
     });
     console.log(`📧 SMTP configured: ${host}:${port} as ${user}`);
   } else if (process.env.ETHEREAL_USER && process.env.ETHEREAL_PASS) {
@@ -34,6 +36,8 @@ const getTransporter = async () => {
       auth: { user: process.env.ETHEREAL_USER, pass: process.env.ETHEREAL_PASS },
     });
     console.log(`📧 Using provided Ethereal account: ${process.env.ETHEREAL_USER}`);
+  } else if (process.env.NODE_ENV === "production" || process.env.NETLIFY) {
+    return null;
   } else {
     // Dev: auto-create Ethereal test account (requires internet)
     try {

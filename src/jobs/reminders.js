@@ -23,6 +23,7 @@ export const runReminderJob = async ({ force = false } = {}) => {
     ntabwiko: { checked: 0, sent: 0, failed: 0, skippedDisabled: 0, details: [] },
   };
 
+  const shop = await ShopProfile.findOne().lean();
   const now = new Date();
   const cutoff = new Date(Date.now() - ONE_DAY);
 
@@ -47,7 +48,6 @@ export const runReminderJob = async ({ force = false } = {}) => {
   result.overdue.checked = overdue.length;
   if (!overdue.length) console.log(`📭 Overdue check: 0 due (force=${force})`);
   for (const loan of overdue) {
-    const shop = await ShopProfile.findOne();
     if (shop?.notifications && shop.notifications.smsOnOverdue === false) {
       result.overdue.skippedDisabled++;
       result.overdue.details.push({ loanId: loan.loanId, status: "skipped-disabled" });
@@ -96,7 +96,6 @@ export const runReminderJob = async ({ force = false } = {}) => {
   }).populate("customer").limit(limit);
   result.upcoming.checked = upcoming.length;
   for (const loan of upcoming) {
-    const shop = await ShopProfile.findOne();
     if (shop?.notifications && shop.notifications.smsOnOverdue === false) {
       result.upcoming.skippedDisabled++;
       continue;
@@ -138,7 +137,6 @@ export const runReminderJob = async ({ force = false } = {}) => {
   }).populate("customer").limit(limit);
   result.ntabwiko.checked = ntabwiko.length;
   for (const loan of ntabwiko) {
-    const shop = await ShopProfile.findOne();
     if (shop?.notifications && shop.notifications.smsOnOverdue === false) {
       result.ntabwiko.skippedDisabled++;
       continue;

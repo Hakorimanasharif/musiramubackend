@@ -51,7 +51,7 @@ export const createCustomer = async (req, res) => {
     if(emailNorm) payload.email = emailNorm;
     const customer = await Customer.create(payload);
     await Log.create({ type:"customer", customerName:`${firstName} ${lastName}`, amount:0, loanId:"NEW", customer: customer._id });
-    notifyShopOwner({ type:"customer", customerName:`${firstName} ${lastName}`, amount:0, loanId:"NEW", customerId: customer._id, ownerId: req.user._id, details: `Phone: ${phoneDigits}${emailNorm?` Email: ${emailNorm}`:""}` });
+    await notifyShopOwner({ type:"customer", customerName:`${firstName} ${lastName}`, amount:0, loanId:"NEW", customerId: customer._id, ownerId: req.user._id, details: `Phone: ${phoneDigits}${emailNorm?` Email: ${emailNorm}`:""}` });
     res.status(201).json(customer);
   } catch (e) {
     if(e.code === 11000){

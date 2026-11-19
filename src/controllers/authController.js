@@ -86,7 +86,7 @@ export const updateProfile = async (req, res) => {
   // Notify owner about profile update (include email change)
   try {
     const { notifyShopOwner } = await import("../utils/shopNotifier.js");
-    notifyShopOwner({
+    await notifyShopOwner({
       type: "profile_update",
       customerName: user.name,
       ownerId: user._id,

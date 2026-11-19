@@ -8,6 +8,10 @@ Shop Debt & Loan Management System API
 - JWT (email/phone login)
 - bcryptjs, cors, morgan
 
+## Netlify
+
+See [NETLIFY.md](NETLIFY.md) for production setup and required environment variables.
+
 ## Setup
 ```bash
 cd backend

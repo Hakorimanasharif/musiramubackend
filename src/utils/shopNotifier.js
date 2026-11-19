@@ -92,8 +92,8 @@ export const notifyShopOwner = async ({ type, customerName, amount = 0, loanId =
 
     const subject = `[${shopName}] [ADMIN] ${rwTypeLabel}: ${customerName} ${loanId ? `(${loanId})` : ""}`;
     const amountStr = amount ? `${new Intl.NumberFormat("en-RW").format(amount)} RWF` : "";
-    const frontendBase = process.env.FRONTEND_URL || (process.env.NODE_ENV === "production" ? "https://musiramuloan.netlify.app" : "http://localhost:5177");
-    const backendBase = process.env.BACKEND_URL || process.env.API_URL || "https://musiramubackend.onrender.com";
+    const frontendBase = process.env.FRONTEND_URL || process.env.URL || (process.env.NODE_ENV === "production" ? "https://musiramuloan.netlify.app" : "http://localhost:5177");
+    const backendBase = process.env.BACKEND_URL || process.env.API_URL || process.env.URL || "https://musiramubackend.onrender.com";
     // Customer links use the secret receiptToken (no L-number visible anywhere);
     // admin links keep the L-ID. Token is fetched/generated here so even older
     // loans without one get a token on first notification.

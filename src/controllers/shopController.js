@@ -33,7 +33,7 @@ export const updateShopProfile = async (req, res) => {
   }
   await profile.save();
   // Notify shop owner about profile change
-  notifyShopOwner({
+  await notifyShopOwner({
     type: "shop_update",
     customerName: profile.shopName,
     amount: 0,

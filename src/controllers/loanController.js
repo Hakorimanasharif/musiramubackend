@@ -104,7 +104,7 @@ export const createLoan = async (req, res) => {
     }]
   });
   await Log.create({ type:"loan", customerName:`${cust.firstName} ${cust.lastName}`, amount: principal, loanId, loan: loan._id, customer: cust._id });
-  notifyShopOwner({ type:"loan", customerName:`${cust.firstName} ${cust.lastName}`, amount: principal, loanId, loanDbId: loan._id, customerId: cust._id, ownerId: req.user._id, details: `Items: ${itemsStr} Due: ${due.toISOString().slice(0,10)}` });
+  await notifyShopOwner({ type:"loan", customerName:`${cust.firstName} ${cust.lastName}`, amount: principal, loanId, loanDbId: loan._id, customerId: cust._id, ownerId: req.user._id, details: `Items: ${itemsStr} Due: ${due.toISOString().slice(0,10)}` });
   const populated = await loan.populate("customer");
   res.status(201).json(populated);
 };
@@ -122,7 +122,7 @@ export const collectPayment = async (req, res) => {
   await loan.save();
   const payment = await Payment.create({ loan: loan._id, loanId: loan.loanId, customer: loan.customer._id, amount: amt, remainingAfter: loan.remaining, principalBefore, createdBy: req.user._id });
   await Log.create({ type:"payment", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: amt, loanId: loan.loanId, loan: loan._id, customer: loan.customer._id });
-  notifyShopOwner({ type:"payment", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: amt, loanId: loan.loanId, loanDbId: loan._id, customerId: loan.customer._id, ownerId: req.user._id, details: `Paid ${amt} RWF Remaining: ${loan.remaining} RWF` });
+  await notifyShopOwner({ type:"payment", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: amt, loanId: loan.loanId, loanDbId: loan._id, customerId: loan.customer._id, ownerId: req.user._id, details: `Paid ${amt} RWF Remaining: ${loan.remaining} RWF` });
   res.json({ loan, payment });
 };
 
@@ -187,9 +187,9 @@ export const getLoanReceiptHtml = async (req, res) => {
   const statusRw = loan.status === "Paid" ? "BYISHYUWE ✓" : loan.status === "Overdue" ? "BYARENZE IGIHE" : "BITEGEJE";
   const rows = (loan.lineItems || []).map((it, i) => `
       <tr><td>${i + 1}</td><td>${esc(it.name)}</td><td style="text-align:center">${it.qty}</td><td style="text-align:right">${fmt(it.price)}</td><td style="text-align:right;font-weight:700">${fmt(Number(it.qty) * Number(it.price))}</td></tr>`).join("");
-  const frontendBase = process.env.FRONTEND_URL || (process.env.NODE_ENV === "production" ? "https://musiramuloan.netlify.app" : "http://localhost:5177");
+  const frontendBase = process.env.FRONTEND_URL || process.env.URL || (process.env.NODE_ENV === "production" ? "https://musiramuloan.netlify.app" : "http://localhost:5177");
   const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
-  const backendBase = process.env.BACKEND_URL || process.env.API_URL || `${proto}://${req.get("host")}`;
+  const backendBase = process.env.BACKEND_URL || process.env.API_URL || process.env.URL || `${proto}://${req.get("host")}`;
   const pdfLink = `${backendBase}/api/loans/receipt/${loanId}/pdf`;
   const appLink = `${frontendBase}/receipt/${loanId}`;
   // Opened with the secret token (customer) vs the L-ID (admin): hide the L-number from customers.
@@ -430,9 +430,9 @@ export const addItemsToLoan = async (req, res) => {
   await loan.save();
   if(added>0){
     await Log.create({ type:"loan", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: added, loanId: loan.loanId, loan: loan._id, customer: loan.customer._id });
-    notifyShopOwner({ type:"add_items", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: added, loanId: loan.loanId, loanDbId: loan._id, customerId: loan.customer._id, ownerId: req.user._id, details: `Added ${added} RWF New total: ${loan.principal} RWF New due: ${loan.dueDate.toISOString().slice(0,10)}` });
+    await notifyShopOwner({ type:"add_items", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: added, loanId: loan.loanId, loanDbId: loan._id, customerId: loan.customer._id, ownerId: req.user._id, details: `Added ${added} RWF New total: ${loan.principal} RWF New due: ${loan.dueDate.toISOString().slice(0,10)}` });
   } else if(dueDate){
-    notifyShopOwner({ type:"overdue", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: loan.remaining, loanId: loan.loanId, loanDbId: loan._id, customerId: loan.customer._id, ownerId: req.user._id, details: `Due date extended to ${loan.dueDate.toISOString().slice(0,10)} Remaining: ${loan.remaining} RWF` });
+    await notifyShopOwner({ type:"overdue", customerName:`${loan.customer.firstName} ${loan.customer.lastName}`, amount: loan.remaining, loanId: loan.loanId, loanDbId: loan._id, customerId: loan.customer._id, ownerId: req.user._id, details: `Due date extended to ${loan.dueDate.toISOString().slice(0,10)} Remaining: ${loan.remaining} RWF` });
   }
   const populated = await loan.populate("customer");
   res.json({ loan: populated, added, newDueDate: loan.dueDate, newTotal: loan.principal, remaining: loan.remaining });
