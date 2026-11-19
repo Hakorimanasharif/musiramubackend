@@ -24,7 +24,6 @@ Required:
 - `FRONTEND_URL`: frontend origin, without a trailing slash.
 - `BACKEND_URL`: API origin, without a trailing slash.
 - `CRON_SECRET`: a long random secret for the scheduled reminder worker.
-- `SIGNUP_CODE`: your private signup code if using protected registration.
 
 Optional: `JWT_EXPIRES_IN`, comma-separated `CORS_ORIGINS` for additional frontends, and your existing SMTP/SMS provider credentials from `backend/.env.example`. Without provider credentials, messages are simulated; real delivery requires working credentials. Do not commit real secrets. Netlify supplies `URL` automatically.
 
