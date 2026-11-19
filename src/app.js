@@ -27,6 +27,7 @@ app.use("/api/loans/receipt", rateLimit({ windowMs: 60*60*1000, max: 100, messag
 const allowedOrigins = new Set([
   process.env.FRONTEND_URL, process.env.URL, process.env.DEPLOY_PRIME_URL,
   "https://musiramuloan.netlify.app",
+  "http://localhost:5177",
   ...(process.env.CORS_ORIGINS || "").split(",").map(value => value.trim()),
 ].filter(Boolean));
 app.use(cors({

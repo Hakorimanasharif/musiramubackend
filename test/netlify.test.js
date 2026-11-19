@@ -47,3 +47,20 @@ test("background reminder worker rejects unauthenticated invocation before datab
   const { handler: worker } = await import("../netlify/functions/reminders-background.mjs");
   assert.equal((await worker({ headers: {} }, {})).statusCode, 401);
 });
+
+
+test("production backend permits the local frontend and its login preflight", async () => {
+  const origin = "http://localhost:5177";
+  const response = await invoke("/", { headers: { origin } });
+  assert.equal(response.headers["access-control-allow-origin"], origin);
+  assert.equal(response.headers["access-control-allow-credentials"], "true");
+  const preflight = await invoke("/api/auth/login", {
+    httpMethod: "OPTIONS",
+    headers: { origin, "access-control-request-method": "POST",
+      "access-control-request-headers": "content-type,authorization" },
+  });
+  assert.equal(preflight.statusCode, 204);
+  assert.equal(preflight.headers["access-control-allow-origin"], origin);
+  const otherPort = await invoke("/", { headers: { origin: "http://localhost:9999" } });
+  assert.equal(otherPort.headers["access-control-allow-origin"], undefined);
+});
