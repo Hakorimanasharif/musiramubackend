@@ -21,15 +21,15 @@ const app = express();
 if (process.env.NETLIFY) app.set("trust proxy", 1);
 
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-app.use(rateLimit({ windowMs: 15*60*1000, max: 300, standardHeaders: true, legacyHeaders: false }));
-app.use("/api/loans/receipt", rateLimit({ windowMs: 60*60*1000, max: 100, message: { message: "Too many receipt requests, try later" } }));
-
 const allowedOrigins = new Set([
   process.env.FRONTEND_URL, process.env.URL, process.env.DEPLOY_PRIME_URL,
   "https://musiramuloan.netlify.app",
   "http://localhost:5177",
   ...(process.env.CORS_ORIGINS || "").split(",").map(value => value.trim()),
-].filter(Boolean));
+].filter(Boolean).map(value => {
+  try { return new URL(value).origin; }
+  catch { return value; }
+}));
 app.use(cors({
   origin: (origin, callback) => {
     const local = process.env.NODE_ENV !== "production" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
@@ -39,6 +39,9 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Cron-Secret"],
 }));
+app.use(rateLimit({ windowMs: 15*60*1000, max: 300, message: { message: "Too many requests. Please wait and try again." }, standardHeaders: true, legacyHeaders: false }));
+app.use("/api/loans/receipt", rateLimit({ windowMs: 60*60*1000, max: 100, message: { message: "Too many receipt requests, try later" } }));
+
 app.use(express.json());
 if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
@@ -75,9 +78,16 @@ app.use("/api/cron", cronRoutes);
 app.use((req,res)=> res.status(404).json({ message: "Not found" }));
 // error handler - preserve status
 app.use((err, req, res, next)=>{
-  console.error(err);
+  if (err.code === 11000 && req.path === "/api/auth/register") {
+    const message = err.keyPattern?.phone ? "Phone already registered" : "User already exists";
+    return res.status(400).json({ message });
+  }
+  if (err.name === "ValidationError") {
+    return res.status(400).json({ message: "Invalid details. Please check the form." });
+  }
   const status = err.status || err.statusCode || 500;
-  res.status(status).json({ message: err.message || "Server error" });
+  if (status >= 500) console.error("Request failed:", err.name, err.code || "internal-error");
+  res.status(status).json({ message: status >= 500 ? "Server error. Please try again." : (err.message || "Invalid request") });
 });
 
 export default app;

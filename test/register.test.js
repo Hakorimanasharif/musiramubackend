@@ -44,3 +44,15 @@ test("registration still rejects an existing email without creating another user
   assert.equal(res.body.message, "User already exists");
   assert.equal(create.mock.callCount(), 0);
 });
+
+test("registration normalizes names and emails before duplicate lookup and storage", async (t) => {
+  process.env.JWT_SECRET = "isolated-registration-test-secret";
+  const find = t.mock.method(User, "findOne", async () => null);
+  const create = t.mock.method(User, "create", async data => ({ ...data, _id: "507f1f77bcf86cd799439011", role: "Shop Owner" }));
+  const res = response();
+  await register({ body: { name: " Owner ", email: " OWNER@EXAMPLE.COM ", password: "test-password" } }, res);
+  assert.equal(res.statusCode, 201);
+  assert.deepEqual(find.mock.calls[0].arguments[0], { email: "owner@example.com" });
+  assert.equal(create.mock.calls[0].arguments[0].name, "Owner");
+  assert.equal(create.mock.calls[0].arguments[0].email, "owner@example.com");
+});

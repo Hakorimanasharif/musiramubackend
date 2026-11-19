@@ -5,8 +5,15 @@ import { sendOTP, formatRwPhone } from "../utils/sms.js";
 import crypto from "crypto";
 
 export const register = async (req, res) => {
-  const { name, email, phone, password } = req.body;
-  if (!name || !email || !password) return res.status(400).json({ message: "Name, email and password required" });
+  const { name: rawName, email: rawEmail, phone, password } = req.body || {};
+  const name = typeof rawName === "string" ? rawName.trim() : "";
+  const email = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
+  if (!name || !email || typeof password !== "string" || !password) return res.status(400).json({ message: "Name, email and password required" });
+  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ message: "Invalid email" });
+  if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+  // Check before creating a user: a missing signing secret must not leave an
+  // account created successfully while the client receives a failed signup.
+  if (!process.env.JWT_SECRET?.trim()) return res.status(503).json({ message: "Authentication is not configured. Please contact the shop administrator." });
   const exists = await User.findOne({ email });
   if (exists) return res.status(400).json({ message: "User already exists" });
   // also allow phone unique check
@@ -22,9 +29,11 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-  const { identifier, email, phone, password } = req.body;
-  const loginId = (identifier || email || phone || "").trim();
-  if (!loginId || !password) return res.status(400).json({ message: "Email/phone and password required" });
+  const { identifier, email, phone, password } = req.body || {};
+  const rawIdentifier = identifier || email || phone;
+  const loginId = typeof rawIdentifier === "string" ? rawIdentifier.trim() : "";
+  if (!loginId || typeof password !== "string" || !password) return res.status(400).json({ message: "Email/phone and password required" });
+  if (!process.env.JWT_SECRET?.trim()) return res.status(503).json({ message: "Authentication is not configured. Please contact the shop administrator." });
 
   let user;
   const isEmail = loginId.includes("@");
